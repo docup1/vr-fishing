@@ -20,8 +20,15 @@ func run_test() -> void:
 	check(game.left_controller.tracker == "left_hand" and game.right_controller.tracker == "right_hand", "controller trackers")
 	check(game.rod.get_parent() == game.right_controller, "rod follows controller")
 	check(game.vr_ui_viewport != null and game.pixel_renderer == null, "stereo UI without mono pixel viewport")
-	var pixel_effect := game.camera.get_node_or_null("VRPixelEffect") as MeshInstance3D
-	check(pixel_effect != null and pixel_effect.material_override is ShaderMaterial, "VR uses stereo screen pixel effect")
+	check(game.camera.get_node_or_null("VRPixelEffect") == null, "VR view is not covered by a screen-reading effect")
+	var test_mesh := MeshInstance3D.new()
+	test_mesh.mesh = BoxMesh.new()
+	var test_material := StandardMaterial3D.new()
+	test_material.albedo_texture = GradientTexture2D.new()
+	test_mesh.material_override = test_material
+	game._apply_vr_texture_filter(test_mesh)
+	check(test_material.texture_filter == BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS, "VR textures use nearest filtering")
+	test_mesh.free()
 	game.camera.position = Vector3(0.3, 1.65, 0.2)
 	var head_before: Vector3 = game.camera.global_position
 	game._turn_vr(1.0, 0.25)

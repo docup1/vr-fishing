@@ -119,7 +119,9 @@ const DOCK := Vector3(0, 0, 9)
 func _ready() -> void:
 	_init_vr()
 	_build_world()
-	if not vr_active:
+	if vr_active:
+		_apply_vr_texture_filter(self)
+	else:
 		_setup_pixel_renderer()
 	_build_ui()
 	_load_game()
@@ -274,8 +276,6 @@ func _build_world() -> void:
 		camera.position.y = 1.65
 		player.add_child(camera)
 	camera.current = true
-	if vr_active:
-		_setup_vr_pixel_effect()
 	# A simple rod stays visible at the bottom right of the view.
 	rod = Node3D.new()
 	if vr_active:
@@ -385,18 +385,17 @@ func _movement_direction(v: Vector2) -> Vector3:
 	var right := Vector3(-forward.z, 0, forward.x)
 	return right * v.x - forward * v.y
 
-func _setup_vr_pixel_effect() -> void:
-	var screen := MeshInstance3D.new()
-	screen.name = "VRPixelEffect"
-	var quad := QuadMesh.new()
-	quad.size = Vector2(2, 2)
-	screen.mesh = quad
-	screen.extra_cull_margin = 10000.0
-	var material := ShaderMaterial.new()
-	material.shader = load("res://vr_pixel.gdshader")
-	material.render_priority = 100
-	screen.material_override = material
-	camera.add_child(screen)
+func _apply_vr_texture_filter(node: Node) -> void:
+	# Keep texture edges sharp without sampling the XR screen buffer.
+	if node is MeshInstance3D:
+		var mesh_node := node as MeshInstance3D
+		if mesh_node.mesh:
+			for surface in range(mesh_node.mesh.get_surface_count()):
+				var material := mesh_node.get_active_material(surface) as BaseMaterial3D
+				if material and material.albedo_texture:
+					material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+	for child in node.get_children():
+		_apply_vr_texture_filter(child)
 
 func _setup_pixel_renderer() -> void:
 	# Keep the existing world and input in the main viewport; the addon renders
