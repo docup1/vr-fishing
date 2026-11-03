@@ -36,6 +36,7 @@ var reeds: Array[Node3D] = []
 var water_material: ShaderMaterial
 var water_time := 0.0
 var boat_velocity := Vector3.ZERO
+var vr_boat_head_offset := Vector3.ZERO
 var player_velocity := Vector3.ZERO
 var bobber: Node3D
 var fishing_center := Vector3.ZERO
@@ -286,9 +287,14 @@ func _build_world() -> void:
 		camera.add_child(rod)
 	var rod_asset := (load("res://GLB/Fishing_Rod.glb") as PackedScene).instantiate() as Node3D
 	rod_asset.scale = Vector3.ONE * 0.7
+	if vr_active:
+		# The GLB's tip points along +Z and its handle is at -Z.
+		# Flip the model and place the handle at the controller's grip pose.
+		rod_asset.rotation.x = PI
+		rod_asset.position.z = -0.70
 	rod.add_child(rod_asset)
 	rod_tip = Node3D.new()
-	rod_tip.position = Vector3(0, 0, -0.76)
+	rod_tip.position = Vector3(0, 0, -1.72 if vr_active else -0.76)
 	rod.add_child(rod_tip)
 	fish_display = Node3D.new()
 	fish_display.position = Vector3(0, -0.05, -2.0)
@@ -1036,7 +1042,8 @@ func _advance_boat(delta: float, v: Vector2) -> void:
 	if absf(boat.position.x) >= 45.0: boat_velocity.x = 0.0
 	if boat.position.z <= -45.0 or boat.position.z >= 8.0: boat_velocity.z = 0.0
 	if boat_velocity.length_squared() > 0.04:
-		var heading := atan2(-boat_velocity.x, -boat_velocity.z)
+		# The downloaded hull's bow is its +Z end, rather than Godot's -Z forward.
+		var heading := atan2(boat_velocity.x, boat_velocity.z)
 		boat_hull.rotation.y = lerp_angle(boat_hull.rotation.y, heading, 1.0 - exp(-2.0 * delta))
 
 func _boat_blocked(pos: Vector2) -> bool:
@@ -1063,7 +1070,7 @@ func _update_boat_pose(delta: float) -> void:
 	boat_wake.scale = Vector3(1.0, 1.0, 1.0 + boat_velocity.length() * 0.3)
 	if not riding:
 		return
-	player.position = boat.position
+	player.position = boat.position - vr_boat_head_offset if vr_active else boat.position
 	# Keep the camera level for comfort; only a small vertical bob follows the hull.
 	player.position.y = 0.5 if vr_active else 0.5 + boat_hull.position.y
 
@@ -1076,6 +1083,9 @@ func _interact() -> void:
 			player_velocity = Vector3.ZERO
 			boat.position = Vector3(0, 0, 7)
 			player.position = Vector3(0, 0, 10)
+			if vr_active:
+				var head_offset := camera.global_position - player.global_position
+				player.position -= Vector3(head_offset.x, 0, head_offset.z)
 			landed = true
 			for entry in pending_fish:
 				stored_fish.append(entry)
@@ -1096,7 +1106,10 @@ func _interact() -> void:
 		boat_blocker.collision_layer = 0
 		boat_velocity = Vector3.ZERO
 		player_velocity = Vector3.ZERO
-		player.position = boat.position + Vector3(0, 0.5, 0)
+		if vr_active:
+			var head_offset := camera.global_position - player.global_position
+			vr_boat_head_offset = Vector3(head_offset.x, 0, head_offset.z)
+		player.position = boat.position - vr_boat_head_offset + Vector3(0, 0.5, 0) if vr_active else boat.position + Vector3(0, 0.5, 0)
 		_show_message("Плыви к одному из трёх участков. Открой карту клавишей M.", 6)
 	elif player.position.distance_to(Vector3(-2.5, 0, 21)) < 2.5:
 		book_open = true

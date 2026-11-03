@@ -19,6 +19,8 @@ func run_test() -> void:
 	check(game.camera is XRCamera3D, "tracked stereo camera")
 	check(game.left_controller.tracker == "left_hand" and game.right_controller.tracker == "right_hand", "controller trackers")
 	check(game.rod.get_parent() == game.right_controller, "rod follows controller")
+	var rod_model := game.rod.get_child(0) as Node3D
+	check(is_equal_approx(rod_model.rotation.x, PI) and game.rod_tip.position.z < -1.5, "rod points forward from the grip and line starts at its tip")
 	check(game.vr_ui_viewport != null and game.pixel_renderer == null, "stereo UI without mono pixel viewport")
 	check(game.camera.get_node_or_null("VRPixelEffect") == null, "VR view is not covered by a screen-reading effect")
 	var test_mesh := MeshInstance3D.new()
@@ -43,6 +45,14 @@ func run_test() -> void:
 	game.player.position = Vector3(0, 0, 10)
 	game._on_vr_left_button("ax_button")
 	check(game.riding, "X boards boat")
+	check(Vector2(game.camera.global_position.x - game.boat.global_position.x, game.camera.global_position.z - game.boat.global_position.z).length() < 0.001, "boarding centers the tracked head over the boat")
+	game.boat.position = Vector3(0, 0, -5)
+	game._advance_boat(1.0, Vector2(0, -1))
+	game._update_boat_pose(1.0)
+	check(Vector2(game.camera.global_position.x - game.boat.global_position.x, game.camera.global_position.z - game.boat.global_position.z).length() < 0.001, "tracked head stays with the moving boat")
+	var bow_direction: Vector3 = game.boat_hull.global_basis.z
+	bow_direction.y = 0
+	check(bow_direction.normalized().dot(game.boat_velocity.normalized()) > 0.8, "boat bow faces its direction of travel")
 	game.boat.position = Vector3(0, 0, -10)
 	game._update_vr_trigger(0.8)
 	check(game.state == "casting", "right trigger casts")
