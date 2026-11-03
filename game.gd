@@ -245,6 +245,8 @@ func _build_world() -> void:
 		boat_hull.add_child(pivot)
 		var paddle := (load("res://GLB/Paddle.glb") as PackedScene).instantiate() as Node3D
 		paddle.scale = Vector3.ONE * 0.7
+		# The imported paddle runs along Z; point the blade end down toward the water.
+		paddle.rotation.x = -PI / 2.0
 		paddle.rotation.z = -side * 0.7
 		pivot.add_child(paddle)
 	boat_blocker = _add_solid_box(boat, Vector3(0, 0.45, 0), Vector3(1.8, 0.9, 3.6))
@@ -288,15 +290,12 @@ func _build_world() -> void:
 	var rod_asset := (load("res://GLB/Fishing_Rod.glb") as PackedScene).instantiate() as Node3D
 	rod_asset.scale = Vector3.ONE * 0.7
 	if vr_active:
-		# The GLB's tip points along +Z and its handle is at -Z.
-		# Flip the model and place the handle at the controller's grip pose.
-		rod_asset.rotation.x = PI
-		# Turn the reel to the opposite side without moving the rod tip.
+		# Align the imported grip with the tracked hand and the tip away from it.
 		rod_asset.rotation.z = PI
-		rod_asset.position.z = -0.70
+		rod_asset.position.z = 0.70
 	rod.add_child(rod_asset)
 	rod_tip = Node3D.new()
-	rod_tip.position = Vector3(0, 0, -1.72 if vr_active else -0.76)
+	rod_tip.position = Vector3(0, 0, 1.72 if vr_active else -0.76)
 	rod.add_child(rod_tip)
 	fish_display = Node3D.new()
 	fish_display.position = Vector3(0, -0.05, -2.0)
