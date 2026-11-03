@@ -55,12 +55,17 @@ func run_flow() -> void:
 	game.player.position = Vector3(0, 0, 19)
 	var doorway_hit = game.player.move_and_collide(Vector3(0, 0, -4))
 	check(doorway_hit == null and game.player.position.z < 16.0, "doorway remains passable")
-	game.player.position = Vector3(0, 0, 12)
+	game.player.position = Vector3(0, 0, 7)
 	var boat_hit = game.player.move_and_collide(Vector3(0, 0, -5))
-	check(boat_hit != null and game.player.position.z > 8.8, "moored boat blocks walking")
+	check(boat_hit != null and game.player.position.z > 3.6, "moored boat blocks walking")
 	game._interact()
 	check(game.riding, "board the boat at the dock")
 	check(game.boat_blocker.collision_layer == 0, "boat collision is disabled while riding")
+	check(game._boat_blocked(Vector2(0, 2.1)), "pier blocks the boat hull")
+	check(not game._boat_blocked(Vector2(0, 1.8)), "mooring remains accessible")
+	game._advance_boat(0.2, Vector2(0, 1))
+	check(game.boat.position.z <= game.BOAT_MOORING.z + 0.1, "boat cannot drive onto pier")
+	game.boat_velocity = Vector3.ZERO
 	game._advance_boat(0.1, Vector2(0, -1))
 	check(game.boat_velocity.length() > 0.0 and game.boat_velocity.length() < 3.0, "boat accelerates gradually")
 	var moving_speed: float = game.boat_velocity.length()
@@ -103,7 +108,7 @@ func run_flow() -> void:
 	game.state = "dialogue"
 	game._choose_fish(false)
 	check(game.boss_in_box and not game.caught_boss, "boss is in box until returning")
-	game.boat.position = Vector3(0, 0, 7)
+	game.boat.position = game.BOAT_MOORING
 	game._interact()
 	check(not game.riding and game.caught_boss and not game.boss_in_box, "return deposits boss")
 	check(game.boat_blocker.collision_layer == 1, "boat blocks walking again after disembarking")
@@ -146,7 +151,7 @@ func run_flow() -> void:
 	game.state = "dialogue"
 	game._choose_fish(false)
 	var before_delivery: int = game.stored_fish.size()
-	game.boat.position = Vector3(0, 0, 7)
+	game.boat.position = game.BOAT_MOORING
 	game._interact()
 	check(game.stored_fish.size() == before_delivery + 3 and game.pending_fish.is_empty(), "every kept fish is delivered home")
 	check(game.caught_bosses.has("1") and game.caught_bosses.has("2"), "bosses from both new areas are recorded")

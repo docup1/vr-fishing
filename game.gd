@@ -116,6 +116,7 @@ const ZONES := [
 const SAVE_PATH := "user://fishing_save.json"
 var save_path := SAVE_PATH
 const DOCK := Vector3(0, 0, 9)
+const BOAT_MOORING := Vector3(0, 0, 1.8)
 
 func _ready() -> void:
 	_init_vr()
@@ -231,7 +232,7 @@ func _build_world() -> void:
 		Art.ellipsoid(reed, Vector3(0.105, 0.34, 0.105), Vector3(0, 2.0, 0), Color(0.27, 0.18, 0.10))
 		reeds.append(reed)
 	boat = Node3D.new()
-	boat.position = Vector3(0, 0, 7)
+	boat.position = BOAT_MOORING
 	add_child(boat)
 	boat_hull = Node3D.new()
 	boat.add_child(boat_hull)
@@ -285,7 +286,7 @@ func _build_world() -> void:
 		rod.position = Vector3(0, -0.04, -0.10)
 		right_controller.add_child(rod)
 	else:
-		rod.position = Vector3(0.48, -0.43, -1.0)
+		rod.position = Vector3(0.38, -0.32, -1.15)
 		camera.add_child(rod)
 	var rod_asset := (load("res://GLB/Fishing_Rod.glb") as PackedScene).instantiate() as Node3D
 	rod_asset.scale = Vector3.ONE * 0.7
@@ -293,9 +294,12 @@ func _build_world() -> void:
 		# Align the imported grip with the tracked hand and the tip away from it.
 		rod_asset.rotation.z = PI
 		rod_asset.position.z = 0.70
+	else:
+		# The asset's handle is on -Z; keep it near the player in desktop view.
+		rod_asset.rotation.y = PI
 	rod.add_child(rod_asset)
 	rod_tip = Node3D.new()
-	rod_tip.position = Vector3(0, 0, 1.72 if vr_active else -0.76)
+	rod_tip.position = Vector3(0, 0, 1.72 if vr_active else -1.02)
 	rod.add_child(rod_tip)
 	fish_display = Node3D.new()
 	fish_display.position = Vector3(0, -0.05, -2.0)
@@ -1049,6 +1053,9 @@ func _advance_boat(delta: float, v: Vector2) -> void:
 
 func _boat_blocked(pos: Vector2) -> bool:
 	# Keep the hull out of the three shores while allowing routes around them.
+	# The pier starts at z=4; leave room for the rotating hull in front of it.
+	if absf(pos.x) < 3.5 and pos.y > 1.9:
+		return true
 	if pos.x >= -18.0 and pos.x <= 18.0 and pos.y >= -24.0 and pos.y <= -14.7:
 		return true
 	if absf(pos.x) >= 26.5 and absf(pos.x) <= 47.5 and pos.y >= -24.5 and pos.y <= -11.5:
@@ -1077,13 +1084,13 @@ func _update_boat_pose(delta: float) -> void:
 
 func _interact() -> void:
 	if riding:
-		if boat.position.distance_to(Vector3(0, 0, 7)) < 4.0:
+		if boat.position.distance_to(BOAT_MOORING) < 4.0:
 			riding = false
 			boat_blocker.collision_layer = 1
 			boat_velocity = Vector3.ZERO
 			player_velocity = Vector3.ZERO
-			boat.position = Vector3(0, 0, 7)
-			player.position = Vector3(0, 0, 10)
+			boat.position = BOAT_MOORING
+			player.position = Vector3(0, 0, 4.8)
 			if vr_active:
 				var head_offset := camera.global_position - player.global_position
 				player.position -= Vector3(head_offset.x, 0, head_offset.z)

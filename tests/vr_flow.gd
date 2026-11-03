@@ -46,7 +46,7 @@ func run_test() -> void:
 	game._on_vr_right_button("ax_button")
 	check(game.book_open, "A opens book")
 	game._on_vr_right_button("ax_button")
-	game.player.position = Vector3(0, 0, 10)
+	game.player.position = Vector3(0, 0, 5)
 	game._on_vr_left_button("ax_button")
 	check(game.riding, "X boards boat")
 	check(Vector2(game.camera.global_position.x - game.boat.global_position.x, game.camera.global_position.z - game.boat.global_position.z).length() < 0.001, "boarding centers the tracked head over the boat")
