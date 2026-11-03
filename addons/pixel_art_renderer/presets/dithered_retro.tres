@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="PixelArtRendererPreset" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/pixel_art_renderer/scripts/pixel_art_renderer_preset.gd" id="1_dither"]
+
+[resource]
+script = ExtResource("1_dither")
+preset_name = "Dithered Retro"
+virtual_width = 320
+virtual_height = 180
+target_fps = 12.0
+color_levels = 7.0
+dither_mode = 2
+dither_strength = 0.26
+outline_enabled = true
+outline_strength = 0.22
+outline_threshold = 0.22

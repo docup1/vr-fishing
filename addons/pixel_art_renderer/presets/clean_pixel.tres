@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="PixelArtRendererPreset" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/pixel_art_renderer/scripts/pixel_art_renderer_preset.gd" id="1_clean"]
+
+[resource]
+script = ExtResource("1_clean")
+preset_name = "Clean Pixel"
+virtual_width = 320
+virtual_height = 180
+target_fps = 12.0
+color_levels = 10.0
+dither_mode = 0
+dither_strength = 0.0
+outline_enabled = false
+outline_strength = 0.0
+outline_threshold = 0.18

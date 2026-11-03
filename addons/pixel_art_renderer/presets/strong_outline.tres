@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="PixelArtRendererPreset" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/pixel_art_renderer/scripts/pixel_art_renderer_preset.gd" id="1_outline"]
+
+[resource]
+script = ExtResource("1_outline")
+preset_name = "Strong Outline"
+virtual_width = 256
+virtual_height = 144
+target_fps = 10.0
+color_levels = 6.0
+dither_mode = 1
+dither_strength = 0.18
+outline_enabled = true
+outline_strength = 0.72
+outline_threshold = 0.14

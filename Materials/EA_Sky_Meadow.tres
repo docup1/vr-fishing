@@ -1,0 +1,9 @@
+[gd_resource type="PanoramaSkyMaterial" load_steps=2 format=3]
+
+[ext_resource type="Texture2D" path="res://Textures/EA_Sky_Sunless_Blue.png" id="1_sky"]
+
+[resource]
+resource_name = "EA_Sky_Meadow"
+panorama = ExtResource("1_sky")
+filter = true
+energy_multiplier = 1.0
