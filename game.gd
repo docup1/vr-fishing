@@ -291,6 +291,8 @@ func _build_world() -> void:
 		# The GLB's tip points along +Z and its handle is at -Z.
 		# Flip the model and place the handle at the controller's grip pose.
 		rod_asset.rotation.x = PI
+		# Turn the reel to the opposite side without moving the rod tip.
+		rod_asset.rotation.z = PI
 		rod_asset.position.z = -0.70
 	rod.add_child(rod_asset)
 	rod_tip = Node3D.new()

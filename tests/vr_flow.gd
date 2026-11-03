@@ -20,7 +20,8 @@ func run_test() -> void:
 	check(game.left_controller.tracker == "left_hand" and game.right_controller.tracker == "right_hand", "controller trackers")
 	check(game.rod.get_parent() == game.right_controller, "rod follows controller")
 	var rod_model := game.rod.get_child(0) as Node3D
-	check(is_equal_approx(rod_model.rotation.x, PI) and game.rod_tip.position.z < -1.5, "rod points forward from the grip and line starts at its tip")
+	check(rod_model.basis.z.normalized().dot(Vector3.BACK) < -0.99 and game.rod_tip.position.z < -1.5, "rod points forward from the grip and line starts at its tip")
+	check(rod_model.basis.x.normalized().dot(Vector3.RIGHT) < -0.99, "rod reel is flipped to the opposite side")
 	check(game.vr_ui_viewport != null and game.pixel_renderer == null, "stereo UI without mono pixel viewport")
 	check(game.camera.get_node_or_null("VRPixelEffect") == null, "VR view is not covered by a screen-reading effect")
 	var test_mesh := MeshInstance3D.new()
