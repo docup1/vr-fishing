@@ -37,6 +37,5 @@ environment/defaults/default_clear_color=Color(0.55, 0.72, 0.79, 1)
 
 [xr]
 
-openxr/enabled=false
-openxr/enabled.android=true
+openxr/enabled=true
 shaders/enabled=true

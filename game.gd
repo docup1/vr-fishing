@@ -126,8 +126,8 @@ func _ready() -> void:
 	_show_message("Осмотрись в доме. X — действие, Y — карта." if vr_active else "Осмотрись в доме. Таб — книга, E — взаимодействие.", 8.0)
 
 func _init_vr() -> void:
-	# Desktop remains usable without a headset. The standalone Android build uses OpenXR.
-	if OS.get_name() != "Android":
+	# Headless tests and servers do not have an XR display.
+	if DisplayServer.get_name() == "headless":
 		return
 	var interface := XRServer.find_interface("OpenXR")
 	if interface and (interface.is_initialized() or interface.initialize()):
@@ -135,8 +135,9 @@ func _init_vr() -> void:
 		get_viewport().use_xr = true
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 		Engine.physics_ticks_per_second = 72
+		print("OpenXR подключён: VR-режим включён.")
 	else:
-		push_error("OpenXR не запустился: проверьте Android XR export и OpenXR runtime.")
+		print("OpenXR недоступен. Запуск в обычном режиме; проверьте подключение шлема и OpenXR runtime.")
 
 func _build_world() -> void:
 	var environment := WorldEnvironment.new()
