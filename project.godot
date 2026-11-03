@@ -14,14 +14,29 @@ config/name="VR Fishing — прототип"
 run/main_scene="res://main.tscn"
 config/features=PackedStringArray("4.7")
 
+[autoload]
+
+XRToolsUserSettings="*uid://bqgb8i74tm0t"
+XRToolsRumbleManager="*uid://by853dk86g1qw"
+
 [display]
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
 window/stretch/mode="canvas_items"
 
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/godot-xr-tools/plugin.cfg")
+
 [rendering]
 
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 environment/defaults/default_clear_color=Color(0.55, 0.72, 0.79, 1)
+
+[xr]
+
+openxr/enabled=false
+openxr/enabled.android=true
+shaders/enabled=true

@@ -5,6 +5,12 @@ const MapMarker = preload("res://map_marker.gd")
 # The desktop controls are deliberately separate from the fishing rules so that
 # a tracked VR rig can feed the same actions in a later version.
 var camera: Camera3D
+var vr_active := false
+var xr_origin: XROrigin3D
+var left_controller: XRController3D
+var right_controller: XRController3D
+var vr_ui_viewport: SubViewport
+var vr_turn_ready := true
 var boat: Node3D
 var boat_hull: Node3D
 var boat_wake: Node3D
@@ -108,13 +114,29 @@ var save_path := SAVE_PATH
 const DOCK := Vector3(0, 0, 9)
 
 func _ready() -> void:
+	_init_vr()
 	_build_world()
-	_setup_pixel_renderer()
+	if not vr_active:
+		_setup_pixel_renderer()
 	_build_ui()
 	_load_game()
 	_refresh_collection()
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	_show_message("Осмотрись в доме. Таб — книга, E — взаимодействие.", 8.0)
+	if not vr_active:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_show_message("Осмотрись в доме. X — действие, Y — карта." if vr_active else "Осмотрись в доме. Таб — книга, E — взаимодействие.", 8.0)
+
+func _init_vr() -> void:
+	# Desktop remains usable without a headset. The standalone Android build uses OpenXR.
+	if OS.get_name() != "Android":
+		return
+	var interface := XRServer.find_interface("OpenXR")
+	if interface and (interface.is_initialized() or interface.initialize()):
+		vr_active = true
+		get_viewport().use_xr = true
+		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+		Engine.physics_ticks_per_second = 72
+	else:
+		push_error("OpenXR не запустился: проверьте Android XR export и OpenXR runtime.")
 
 func _build_world() -> void:
 	var environment := WorldEnvironment.new()
@@ -234,14 +256,28 @@ func _build_world() -> void:
 	player_shape.shape = capsule
 	player_shape.position.y = 1.025
 	player.add_child(player_shape)
-	camera = Camera3D.new()
-	camera.position.y = 1.65
-	player.add_child(camera)
+	if vr_active:
+		xr_origin = XROrigin3D.new()
+		player.add_child(xr_origin)
+		camera = XRCamera3D.new()
+		xr_origin.add_child(camera)
+		left_controller = _make_controller("left_hand")
+		right_controller = _make_controller("right_hand")
+		left_controller.button_pressed.connect(_on_vr_left_button)
+		right_controller.button_pressed.connect(_on_vr_right_button)
+	else:
+		camera = Camera3D.new()
+		camera.position.y = 1.65
+		player.add_child(camera)
 	camera.current = true
 	# A simple rod stays visible at the bottom right of the view.
 	rod = Node3D.new()
-	rod.position = Vector3(0.48, -0.43, -1.0)
-	camera.add_child(rod)
+	if vr_active:
+		rod.position = Vector3(0, -0.04, -0.10)
+		right_controller.add_child(rod)
+	else:
+		rod.position = Vector3(0.48, -0.43, -1.0)
+		camera.add_child(rod)
 	var rod_asset := (load("res://GLB/Fishing_Rod.glb") as PackedScene).instantiate() as Node3D
 	rod_asset.scale = Vector3.ONE * 0.7
 	rod.add_child(rod_asset)
@@ -266,6 +302,70 @@ func _build_world() -> void:
 	collection_root = Node3D.new()
 	collection_root.name = "FishCollection"
 	add_child(collection_root)
+
+func _make_controller(tracker_path: String) -> XRController3D:
+	var controller := XRController3D.new()
+	controller.tracker = tracker_path
+	controller.pose = "grip"
+	xr_origin.add_child(controller)
+	var handle := MeshInstance3D.new()
+	var mesh := CapsuleMesh.new()
+	mesh.radius = 0.035
+	mesh.height = 0.18
+	handle.mesh = mesh
+	controller.add_child(handle)
+	return controller
+
+func _on_vr_left_button(action: String) -> void:
+	if action == "ax_button" and state == "idle" and not book_open and not map_open:
+		_interact()
+	elif action == "by_button" and state == "idle":
+		map_open = not map_open
+		book_open = false
+
+func _on_vr_right_button(action: String) -> void:
+	if action == "trigger_click" and not book_open and not map_open:
+		_fishing_action()
+	elif action == "ax_button":
+		if state == "dialogue":
+			_choose_fish(true)
+		elif state == "idle":
+			book_open = not book_open
+			map_open = false
+	elif action == "by_button" and state == "dialogue":
+		_choose_fish(false)
+
+func _update_vr_input(delta: float) -> void:
+	var stick := right_controller.get_vector2("primary")
+	if state == "reeling":
+		aim_destination.x = clampf(aim_destination.x + stick.x * delta * 2.8, -FISHING_RANGE, FISHING_RANGE)
+		aim_destination.y = clampf(aim_destination.y + stick.y * delta * 2.8, -FISHING_RANGE, FISHING_RANGE)
+	elif absf(stick.x) < 0.3:
+		vr_turn_ready = true
+	elif vr_turn_ready and absf(stick.x) > 0.7:
+		# Rotate around the tracked head instead of orbiting around the origin.
+		var head_position := camera.global_position
+		player.rotate_y(-signf(stick.x) * PI / 6.0)
+		var head_delta := head_position - camera.global_position
+		player.global_position += Vector3(head_delta.x, 0, head_delta.z)
+		vr_turn_ready = false
+
+func _movement_input() -> Vector2:
+	if vr_active:
+		var stick := left_controller.get_vector2("primary")
+		if stick.length() < 0.2:
+			return Vector2.ZERO
+		return Vector2(stick.x, -stick.y)
+	return Vector2(float(Input.is_key_pressed(KEY_D)) - float(Input.is_key_pressed(KEY_A)), float(Input.is_key_pressed(KEY_S)) - float(Input.is_key_pressed(KEY_W)))
+
+func _movement_direction(v: Vector2) -> Vector3:
+	if not vr_active:
+		return player.global_basis * Vector3(v.x, 0, v.y)
+	var forward := -camera.global_basis.z
+	forward.y = 0
+	forward = forward.normalized()
+	var right := Vector3(-forward.z, 0, forward.x)
+	return right * v.x - forward * v.y
 
 func _setup_pixel_renderer() -> void:
 	# Keep the existing world and input in the main viewport; the addon renders
@@ -517,7 +617,27 @@ func _add_solid_box(parent: Node3D, pos: Vector3, size: Vector3) -> StaticBody3D
 func _build_ui() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 2
-	add_child(layer)
+	if vr_active:
+		vr_ui_viewport = SubViewport.new()
+		vr_ui_viewport.size = Vector2i(1280, 720)
+		vr_ui_viewport.transparent_bg = true
+		vr_ui_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		add_child(vr_ui_viewport)
+		vr_ui_viewport.add_child(layer)
+		var ui_screen := MeshInstance3D.new()
+		var quad := QuadMesh.new()
+		quad.size = Vector2(2.4, 1.35)
+		ui_screen.mesh = quad
+		var material := StandardMaterial3D.new()
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		material.albedo_texture = vr_ui_viewport.get_texture()
+		material.no_depth_test = true
+		ui_screen.material_override = material
+		ui_screen.position = Vector3(0, 0, -2.0)
+		camera.add_child(ui_screen)
+	else:
+		add_child(layer)
 	ui_root = Control.new()
 	ui_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	ui_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -619,7 +739,7 @@ func _label(parent: Node, pos: Vector2, font_size: int) -> Label:
 	return label
 
 func _layout_ui() -> void:
-	var screen := get_viewport().get_visible_rect().size
+	var screen := Vector2(vr_ui_viewport.size) if vr_active else get_viewport().get_visible_rect().size
 	var margin := 24.0
 	var small_screen := screen.x < 980.0 or screen.y < 560.0
 	prompt.add_theme_font_size_override("font_size", 14 if small_screen else 18)
@@ -672,6 +792,8 @@ func _layout_ui() -> void:
 	map_footer.position = map_background.position + Vector2(24, map_height - 35)
 
 func _unhandled_input(event: InputEvent) -> void:
+	if vr_active:
+		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var motion := event as InputEventMouseMotion
 		if state == "reeling":
@@ -700,6 +822,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_choose_fish(false)
 
 func _process(delta: float) -> void:
+	if vr_active:
+		_update_vr_input(delta)
 	water_time += delta
 	water_material.set_shader_parameter("wave_time", water_time)
 	for i in range(reeds.size()):
@@ -732,7 +856,7 @@ func _process(delta: float) -> void:
 		if bite_seconds <= 0.0:
 			_end_attempt("Рыба сорвалась. Попробуй ещё раз.")
 	elif state == "reeling":
-		_advance_reeling(delta, Input.is_key_pressed(KEY_SPACE))
+		_advance_reeling(delta, right_controller.get_float("trigger") > 0.55 if vr_active else Input.is_key_pressed(KEY_SPACE))
 		if progress >= 1.0:
 			energy = maxf(0, energy - 8)
 			state = "dialogue"
@@ -843,26 +967,27 @@ func _update_fishing_visuals() -> void:
 		previous = point
 
 func _move_player(delta: float) -> void:
-	var v := Vector2(float(Input.is_key_pressed(KEY_D)) - float(Input.is_key_pressed(KEY_A)), float(Input.is_key_pressed(KEY_S)) - float(Input.is_key_pressed(KEY_W)))
+	var v := _movement_input()
 	if v.length() > 1: v = v.normalized()
-	var direction := player.global_basis * Vector3(v.x, 0, v.y)
+	var direction := _movement_direction(v)
 	var speed := 5.0 if Input.is_key_pressed(KEY_SHIFT) else 3.0
 	player_velocity = player_velocity.move_toward(direction * speed, 12.0 * delta)
 	player.velocity = player_velocity
 	player.move_and_slide()
 	player_velocity = player.velocity
-	var walking_bob := sin(water_time * 8.0) * 0.025 * clampf(player_velocity.length() / 3.0, 0.0, 1.0)
-	camera.position.y = lerpf(camera.position.y, 1.65 + walking_bob, 1.0 - exp(-8.0 * delta))
+	if not vr_active:
+		var walking_bob := sin(water_time * 8.0) * 0.025 * clampf(player_velocity.length() / 3.0, 0.0, 1.0)
+		camera.position.y = lerpf(camera.position.y, 1.65 + walking_bob, 1.0 - exp(-8.0 * delta))
 	player.position.x = clampf(player.position.x, -15.5, 15.5)
 	player.position.z = clampf(player.position.z, 4.5, 23.5)
 
 func _move_boat(delta: float) -> void:
-	var v := Vector2(float(Input.is_key_pressed(KEY_D)) - float(Input.is_key_pressed(KEY_A)), float(Input.is_key_pressed(KEY_S)) - float(Input.is_key_pressed(KEY_W)))
+	var v := _movement_input()
 	_advance_boat(delta, v)
 
 func _advance_boat(delta: float, v: Vector2) -> void:
 	if v.length() > 1: v = v.normalized()
-	var direction := player.global_basis * Vector3(v.x, 0, v.y)
+	var direction := _movement_direction(v)
 	direction.y = 0.0
 	# A boat carries momentum and eases to a stop after the player releases WASD.
 	var acceleration := 1.8 if v.length_squared() > 0.0 else 1.0
@@ -909,7 +1034,7 @@ func _update_boat_pose(delta: float) -> void:
 		return
 	player.position = boat.position
 	# Keep the camera level for comfort; only a small vertical bob follows the hull.
-	player.position.y = 0.5 + boat_hull.position.y
+	player.position.y = 0.5 if vr_active else 0.5 + boat_hull.position.y
 
 func _interact() -> void:
 	if riding:
@@ -955,7 +1080,8 @@ func _interact() -> void:
 func _fishing_action() -> void:
 	if state == "bite":
 		state = "reeling"
-		camera.look_at(_water_position(Vector2.ZERO), Vector3.UP)
+		if not vr_active:
+			camera.look_at(_water_position(Vector2.ZERO), Vector3.UP)
 		progress = 0.0
 		fish_time = 0.0
 		fishing_aim = Vector2.ZERO
@@ -995,7 +1121,7 @@ func _fishing_action() -> void:
 		current_type = "other" if unavailable else "boss"
 	state = "casting"
 	wait_seconds = randf_range(3.0, 6.0)
-	fishing_forward = -player.global_basis.z
+	fishing_forward = -camera.global_basis.z if vr_active else -player.global_basis.z
 	fishing_forward.y = 0
 	fishing_forward = fishing_forward.normalized()
 	fishing_right = Vector3(-fishing_forward.z, 0, fishing_forward.x)
@@ -1005,7 +1131,8 @@ func _fishing_action() -> void:
 	fishing_center.x = clampf(fishing_center.x, -47.0, 47.0)
 	fishing_center.z = clampf(fishing_center.z, -12.6, 7.0)
 	fishing_center.y = -0.06
-	camera.look_at(fishing_center, Vector3.UP)
+	if not vr_active:
+		camera.look_at(fishing_center, Vector3.UP)
 	cast_elapsed = 0.0
 	cast_start = rod_tip.global_position
 	bobber.global_position = cast_start
@@ -1092,8 +1219,26 @@ func _update_ui() -> void:
 		prompt.text = "Заброс: леска летит к воде"
 	elif state == "reeling":
 		prompt.text = "Мышь — веди круг за рыбой на воде   |   Пробел — сматывать"
+	if vr_active:
+		map_legend.text = "ОРИЕНТИРЫ\n\n▲  Вы и направление взгляда\n\nКамышовая заводь — север\nСтарый причал — запад\nКоряжник — восток\nДом — у южного причала\n\nY — закрыть карту"
+		prompt.text = "Левый стик — движение   |   X — действие   |   Y — карта   |   A — книга"
+		if riding and state == "idle":
+			prompt.text = "Левый стик — лодка   |   Правый курок — заброс   |   Y — карта   |   X — выйти"
+		elif state == "bite":
+			prompt.text = "ПОКЛЁВКА! Нажми правый курок"
+		elif state == "reeling":
+			prompt.text = "Правый стик — веди круг за рыбой   |   Держи курок — сматывать"
+		if state == "dialogue":
+			overlay.text = overlay.text.replace("1 — отпустить     2 — забрать в ящик", "A — отпустить     B — забрать в ящик")
+		elif book_open:
+			overlay.text = overlay.text.replace("Tab — закрыть книгу", "A — закрыть книгу")
+		map_footer.text = "Y — закрыть карту"
 
 func _show_message(text: String, duration: float) -> void:
+	if vr_active:
+		text = text.replace("Нажми F", "Нажми правый курок")
+		text = text.replace("клавишей M", "кнопкой Y")
+		text = text.replace("E: книга", "X: книга")
 	message = text
 	message_time = duration
 
