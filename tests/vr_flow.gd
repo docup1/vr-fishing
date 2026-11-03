@@ -24,7 +24,9 @@ func run_test() -> void:
 	check(rod_model.basis.x.normalized().dot(Vector3.RIGHT) < -0.99, "rod reel is flipped to the opposite side")
 	for oar_name in ["LeftOar", "RightOar"]:
 		var paddle := game.boat_hull.get_node(oar_name).get_child(0) as Node3D
-		check((paddle.basis * Vector3.FORWARD).y < -0.4, "%s blade points down" % oar_name)
+		var imported_mesh := paddle.get_child(0) as Node3D
+		var blade_axis: Vector3 = (paddle.basis * imported_mesh.basis * Vector3.DOWN).normalized()
+		check(blade_axis.dot(Vector3.DOWN) > 0.99, "%s imported blade points vertically down" % oar_name)
 	check(game.vr_ui_viewport != null and game.pixel_renderer == null, "stereo UI without mono pixel viewport")
 	check(game.camera.get_node_or_null("VRPixelEffect") == null, "VR view is not covered by a screen-reading effect")
 	var test_mesh := MeshInstance3D.new()

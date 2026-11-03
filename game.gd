@@ -248,7 +248,6 @@ func _build_world() -> void:
 		paddle.scale = Vector3.ONE * 0.7
 		# The imported paddle runs along Z; point the blade end down toward the water.
 		paddle.rotation.x = -PI / 2.0
-		paddle.rotation.z = -side * 0.7
 		pivot.add_child(paddle)
 	boat_blocker = _add_solid_box(boat, Vector3(0, 0.45, 0), Vector3(1.8, 0.9, 3.6))
 	boat_wake = Node3D.new()
@@ -1071,7 +1070,6 @@ func _update_boat_pose(delta: float) -> void:
 	for oar_name in ["LeftOar", "RightOar"]:
 		var oar := boat_hull.get_node(oar_name) as Node3D
 		oar.rotation.y = sin(water_time * 2.5) * 0.24 * stroke_strength
-		oar.rotation.x = sin(water_time * 2.5 + PI / 2.0) * 0.12 * stroke_strength
 	boat_wake.visible = boat_velocity.length() > 0.25
 	boat_wake.position = boat.position
 	boat_wake.position.y = _water_height(boat.position.x, boat.position.z) + 0.08
