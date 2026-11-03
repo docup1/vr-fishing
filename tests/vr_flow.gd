@@ -20,6 +20,13 @@ func run_test() -> void:
 	check(game.left_controller.tracker == "left_hand" and game.right_controller.tracker == "right_hand", "controller trackers")
 	check(game.rod.get_parent() == game.right_controller, "rod follows controller")
 	check(game.vr_ui_viewport != null and game.pixel_renderer == null, "stereo UI without mono pixel viewport")
+	var pixel_effect := game.camera.get_node_or_null("VRPixelEffect") as MeshInstance3D
+	check(pixel_effect != null and pixel_effect.material_override is ShaderMaterial, "VR uses stereo screen pixel effect")
+	game.camera.position = Vector3(0.3, 1.65, 0.2)
+	var head_before: Vector3 = game.camera.global_position
+	game._turn_vr(1.0, 0.25)
+	check(absf(game.xr_origin.rotation.y + game.VR_TURN_SPEED * 0.25) < 0.001, "held stick turns smoothly at configured speed")
+	check(game.camera.global_position.distance_to(head_before) < 0.001, "turn keeps head position fixed")
 	game._on_vr_left_button("by_button")
 	check(game.map_open, "Y opens map")
 	game._on_vr_left_button("by_button")
@@ -30,10 +37,13 @@ func run_test() -> void:
 	game._on_vr_left_button("ax_button")
 	check(game.riding, "X boards boat")
 	game.boat.position = Vector3(0, 0, -10)
-	game._on_vr_right_button("trigger_click")
+	game._update_vr_trigger(0.8)
 	check(game.state == "casting", "right trigger casts")
 	game.state = "bite"
-	game._on_vr_right_button("trigger_click")
+	game._update_vr_trigger(0.8)
+	check(game.state == "bite", "held trigger does not hook repeatedly")
+	game._update_vr_trigger(0.2)
+	game._update_vr_trigger(0.8)
 	check(game.state == "reeling", "right trigger hooks")
 	game.state = "dialogue"
 	game.current_type = "other"

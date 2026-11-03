@@ -10,7 +10,10 @@ var xr_origin: XROrigin3D
 var left_controller: XRController3D
 var right_controller: XRController3D
 var vr_ui_viewport: SubViewport
-var vr_turn_ready := true
+var vr_trigger_pressed := false
+const VR_TURN_SPEED := 2.6 # radians per second at full stick deflection
+const VR_TRIGGER_PRESS := 0.55
+const VR_TRIGGER_RELEASE := 0.35
 var boat: Node3D
 var boat_hull: Node3D
 var boat_wake: Node3D
@@ -134,7 +137,7 @@ func _init_vr() -> void:
 		vr_active = true
 		get_viewport().use_xr = true
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
-		Engine.physics_ticks_per_second = 72
+		Engine.physics_ticks_per_second = 90
 		print("OpenXR подключён: VR-режим включён.")
 	else:
 		print("OpenXR недоступен. Запуск в обычном режиме; проверьте подключение шлема и OpenXR runtime.")
@@ -271,6 +274,8 @@ func _build_world() -> void:
 		camera.position.y = 1.65
 		player.add_child(camera)
 	camera.current = true
+	if vr_active:
+		_setup_vr_pixel_effect()
 	# A simple rod stays visible at the bottom right of the view.
 	rod = Node3D.new()
 	if vr_active:
@@ -325,9 +330,7 @@ func _on_vr_left_button(action: String) -> void:
 		book_open = false
 
 func _on_vr_right_button(action: String) -> void:
-	if action == "trigger_click" and not book_open and not map_open:
-		_fishing_action()
-	elif action == "ax_button":
+	if action == "ax_button":
 		if state == "dialogue":
 			_choose_fish(true)
 		elif state == "idle":
@@ -337,19 +340,33 @@ func _on_vr_right_button(action: String) -> void:
 		_choose_fish(false)
 
 func _update_vr_input(delta: float) -> void:
+	_update_vr_trigger(right_controller.get_float("trigger"))
 	var stick := right_controller.get_vector2("primary")
 	if state == "reeling":
 		aim_destination.x = clampf(aim_destination.x + stick.x * delta * 2.8, -FISHING_RANGE, FISHING_RANGE)
 		aim_destination.y = clampf(aim_destination.y + stick.y * delta * 2.8, -FISHING_RANGE, FISHING_RANGE)
-	elif absf(stick.x) < 0.3:
-		vr_turn_ready = true
-	elif vr_turn_ready and absf(stick.x) > 0.7:
-		# Rotate around the tracked head instead of orbiting around the origin.
-		var head_position := camera.global_position
-		player.rotate_y(-signf(stick.x) * PI / 6.0)
-		var head_delta := head_position - camera.global_position
-		player.global_position += Vector3(head_delta.x, 0, head_delta.z)
-		vr_turn_ready = false
+	else:
+		_turn_vr(stick.x, delta)
+
+func _update_vr_trigger(value: float) -> void:
+	if vr_trigger_pressed:
+		if value <= VR_TRIGGER_RELEASE:
+			vr_trigger_pressed = false
+	elif value >= VR_TRIGGER_PRESS:
+		vr_trigger_pressed = true
+		if not book_open and not map_open:
+			_fishing_action()
+
+func _turn_vr(axis: float, delta: float) -> void:
+	const DEADZONE := 0.2
+	if absf(axis) <= DEADZONE:
+		return
+	var strength := (minf(absf(axis), 1.0) - DEADZONE) / (1.0 - DEADZONE)
+	# Rotate the rig around the tracked head without shifting it relative to the boat.
+	var head_position := camera.global_position
+	xr_origin.rotate_y(-signf(axis) * strength * VR_TURN_SPEED * delta)
+	var head_delta := head_position - camera.global_position
+	xr_origin.global_position += Vector3(head_delta.x, 0, head_delta.z)
 
 func _movement_input() -> Vector2:
 	if vr_active:
@@ -367,6 +384,19 @@ func _movement_direction(v: Vector2) -> Vector3:
 	forward = forward.normalized()
 	var right := Vector3(-forward.z, 0, forward.x)
 	return right * v.x - forward * v.y
+
+func _setup_vr_pixel_effect() -> void:
+	var screen := MeshInstance3D.new()
+	screen.name = "VRPixelEffect"
+	var quad := QuadMesh.new()
+	quad.size = Vector2(2, 2)
+	screen.mesh = quad
+	screen.extra_cull_margin = 10000.0
+	var material := ShaderMaterial.new()
+	material.shader = load("res://vr_pixel.gdshader")
+	material.render_priority = 100
+	screen.material_override = material
+	camera.add_child(screen)
 
 func _setup_pixel_renderer() -> void:
 	# Keep the existing world and input in the main viewport; the addon renders
@@ -634,6 +664,7 @@ func _build_ui() -> void:
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		material.albedo_texture = vr_ui_viewport.get_texture()
 		material.no_depth_test = true
+		material.render_priority = 120
 		ui_screen.material_override = material
 		ui_screen.position = Vector3(0, 0, -2.0)
 		camera.add_child(ui_screen)
