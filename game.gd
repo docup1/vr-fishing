@@ -11,6 +11,11 @@ var left_controller: XRController3D
 var right_controller: XRController3D
 var vr_ui_viewport: SubViewport
 var vr_trigger_pressed := false
+var vr_row_previous := [Vector3.ZERO, Vector3.ZERO]
+var vr_row_tracking := [false, false]
+var vr_row_strength := 0.0
+var vr_holding_oar := [false, false]
+var vr_held_oars: Array[Node3D] = []
 const VR_TURN_SPEED := 2.6 # radians per second at full stick deflection
 const VR_TRIGGER_PRESS := 0.55
 const VR_TRIGGER_RELEASE := 0.35
@@ -246,8 +251,8 @@ func _build_world() -> void:
 		boat_hull.add_child(pivot)
 		var paddle := (load("res://GLB/Paddle.glb") as PackedScene).instantiate() as Node3D
 		paddle.scale = Vector3.ONE * 0.7
-		# The imported paddle runs along Z; point the blade end down toward the water.
-		paddle.rotation.x = -PI / 2.0
+		# The broad blade is the positive end of the imported paddle's Z axis.
+		paddle.rotation.x = PI / 2.0
 		pivot.add_child(paddle)
 	boat_blocker = _add_solid_box(boat, Vector3(0, 0.45, 0), Vector3(1.8, 0.9, 3.6))
 	boat_wake = Node3D.new()
@@ -272,6 +277,8 @@ func _build_world() -> void:
 		xr_origin.add_child(camera)
 		left_controller = _make_controller("left_hand")
 		right_controller = _make_controller("right_hand")
+		_make_vr_held_oar(left_controller)
+		_make_vr_held_oar(right_controller)
 		left_controller.button_pressed.connect(_on_vr_left_button)
 		right_controller.button_pressed.connect(_on_vr_right_button)
 	else:
@@ -332,6 +339,16 @@ func _make_controller(tracker_path: String) -> XRController3D:
 	controller.add_child(handle)
 	return controller
 
+func _make_vr_held_oar(controller: XRController3D) -> void:
+	var oar := (load("res://GLB/Paddle.glb") as PackedScene).instantiate() as Node3D
+	oar.name = "HeldOar"
+	oar.scale = Vector3.ONE * 0.7
+	oar.rotation.x = PI / 2.0
+	oar.position.y = -0.2
+	oar.visible = false
+	controller.add_child(oar)
+	vr_held_oars.append(oar)
+
 func _on_vr_left_button(action: String) -> void:
 	if action == "ax_button" and state == "idle" and not book_open and not map_open:
 		_interact()
@@ -350,6 +367,7 @@ func _on_vr_right_button(action: String) -> void:
 		_choose_fish(false)
 
 func _update_vr_input(delta: float) -> void:
+	_update_vr_rowing(delta)
 	_update_vr_trigger(right_controller.get_float("trigger"))
 	var stick := right_controller.get_vector2("primary")
 	if state == "reeling":
@@ -364,8 +382,39 @@ func _update_vr_trigger(value: float) -> void:
 			vr_trigger_pressed = false
 	elif value >= VR_TRIGGER_PRESS:
 		vr_trigger_pressed = true
-		if not book_open and not map_open:
+		if not book_open and not map_open and not vr_holding_oar[1]:
 			_fishing_action()
+
+func _row_hand_strength(index: int, local_position: Vector3, gripping: bool, delta: float) -> float:
+	if not gripping:
+		vr_row_tracking[index] = false
+		return 0.0
+	if not vr_row_tracking[index] or delta <= 0.0 or delta > 0.1:
+		vr_row_previous[index] = local_position
+		vr_row_tracking[index] = true
+		return 0.0
+	var displacement: Vector3 = local_position - vr_row_previous[index]
+	vr_row_previous[index] = local_position
+	# Compare tracked hand movement in the play space, excluding boat motion.
+	var hand_velocity := xr_origin.global_basis * displacement / delta
+	var forward := -camera.global_basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	return clampf(-hand_velocity.dot(forward) / 1.2, 0.0, 1.0)
+
+func _update_vr_rowing(delta: float) -> void:
+	var can_row := riding and state == "idle" and not book_open and not map_open
+	var controllers := [left_controller, right_controller]
+	vr_row_strength = 0.0
+	for index in range(2):
+		var controller: XRController3D = controllers[index]
+		var gripping := can_row and controller.get_is_active() and controller.get_float("grip") > 0.55
+		vr_holding_oar[index] = gripping
+		vr_row_strength += _row_hand_strength(index, controller.position, gripping, delta) * 0.6
+		vr_held_oars[index].visible = gripping
+		boat_hull.get_node("LeftOar" if index == 0 else "RightOar").visible = not gripping
+	vr_row_strength = clampf(vr_row_strength, 0.0, 1.0)
+	rod.visible = not vr_holding_oar[1]
 
 func _turn_vr(axis: float, delta: float) -> void:
 	const DEADZONE := 0.2
@@ -1023,7 +1072,7 @@ func _move_player(delta: float) -> void:
 	player.position.z = clampf(player.position.z, 4.5, 23.5)
 
 func _move_boat(delta: float) -> void:
-	var v := _movement_input()
+	var v := Vector2(0, -vr_row_strength) if vr_active else _movement_input()
 	_advance_boat(delta, v)
 
 func _advance_boat(delta: float, v: Vector2) -> void:
@@ -1116,7 +1165,7 @@ func _interact() -> void:
 			var head_offset := camera.global_position - player.global_position
 			vr_boat_head_offset = Vector3(head_offset.x, 0, head_offset.z)
 		player.position = boat.position - vr_boat_head_offset + Vector3(0, 0.5, 0) if vr_active else boat.position + Vector3(0, 0.5, 0)
-		_show_message("Плыви к одному из трёх участков. Открой карту клавишей M.", 6)
+		_show_message("Зажми хват и греби руками назад. Y — карта." if vr_active else "Плыви к одному из трёх участков. Открой карту клавишей M.", 6)
 	elif player.position.distance_to(Vector3(-2.5, 0, 21)) < 2.5:
 		book_open = true
 	elif player.position.distance_to(Vector3(2.8, 0, 21)) < 2.5:
@@ -1273,7 +1322,7 @@ func _update_ui() -> void:
 		map_legend.text = "ОРИЕНТИРЫ\n\n▲  Вы и направление взгляда\n\nКамышовая заводь — север\nСтарый причал — запад\nКоряжник — восток\nДом — у южного причала\n\nY — закрыть карту"
 		prompt.text = "Левый стик — движение   |   X — действие   |   Y — карта   |   A — книга"
 		if riding and state == "idle":
-			prompt.text = "Левый стик — лодка   |   Правый курок — заброс   |   Y — карта   |   X — выйти"
+			prompt.text = "Хват + движение рук назад — грести   |   Курок — заброс   |   Y — карта   |   X — выйти"
 		elif state == "bite":
 			prompt.text = "ПОКЛЁВКА! Нажми правый курок"
 		elif state == "reeling":

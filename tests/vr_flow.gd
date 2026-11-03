@@ -25,7 +25,7 @@ func run_test() -> void:
 	for oar_name in ["LeftOar", "RightOar"]:
 		var paddle := game.boat_hull.get_node(oar_name).get_child(0) as Node3D
 		var imported_mesh := paddle.get_child(0) as Node3D
-		var blade_axis: Vector3 = (paddle.basis * imported_mesh.basis * Vector3.DOWN).normalized()
+		var blade_axis: Vector3 = (paddle.basis * imported_mesh.basis * Vector3.UP).normalized()
 		check(blade_axis.dot(Vector3.DOWN) > 0.99, "%s imported blade points vertically down" % oar_name)
 	check(game.vr_ui_viewport != null and game.pixel_renderer == null, "stereo UI without mono pixel viewport")
 	check(game.camera.get_node_or_null("VRPixelEffect") == null, "VR view is not covered by a screen-reading effect")
@@ -52,7 +52,17 @@ func run_test() -> void:
 	game._on_vr_left_button("ax_button")
 	check(game.riding, "X boards boat")
 	check(Vector2(game.camera.global_position.x - game.boat.global_position.x, game.camera.global_position.z - game.boat.global_position.z).length() < 0.001, "boarding centers the tracked head over the boat")
+	var backward_local: Vector3 = game.xr_origin.global_basis.inverse() * game.camera.global_basis.z.normalized()
+	check(game._row_hand_strength(0, Vector3.ZERO, true, 0.05) == 0.0, "grabbing an oar does not create a stroke")
+	var stroke: float = game._row_hand_strength(0, backward_local * 0.08, true, 0.05)
+	check(stroke > 0.5, "pulling the tracked hand backward creates a stroke")
+	check(game._row_hand_strength(0, Vector3.ZERO, true, 0.05) == 0.0, "moving the hand forward does not propel the boat")
+	check(game._row_hand_strength(0, Vector3.ZERO, false, 0.05) == 0.0, "released hand does not propel the boat")
 	game.boat.position = Vector3(0, 0, -5)
+	game.vr_row_strength = stroke
+	game._move_boat(0.1)
+	check(game.boat_velocity.length() > 0.0, "rowing propels the boat")
+	game.boat_velocity = Vector3.ZERO
 	game._advance_boat(1.0, Vector2(0, -1))
 	game._update_boat_pose(1.0)
 	check(Vector2(game.camera.global_position.x - game.boat.global_position.x, game.camera.global_position.z - game.boat.global_position.z).length() < 0.001, "tracked head stays with the moving boat")
