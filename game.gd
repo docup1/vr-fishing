@@ -15,7 +15,7 @@ var vr_row_previous := [Vector3.ZERO, Vector3.ZERO]
 var vr_row_tracking := [false, false]
 var vr_row_strength := 0.0
 var vr_holding_oar := [false, false]
-var vr_held_oars: Array[Node3D] = []
+const VR_OAR_GRAB_RADIUS := 0.65
 const VR_TURN_SPEED := 2.6 # radians per second at full stick deflection
 const VR_TRIGGER_PRESS := 0.55
 const VR_TRIGGER_RELEASE := 0.35
@@ -254,6 +254,10 @@ func _build_world() -> void:
 		# The broad blade is the positive end of the imported paddle's Z axis.
 		paddle.rotation.x = PI / 2.0
 		pivot.add_child(paddle)
+		var grip_point := Marker3D.new()
+		grip_point.name = "GripPoint"
+		grip_point.position.y = 0.68
+		pivot.add_child(grip_point)
 	boat_blocker = _add_solid_box(boat, Vector3(0, 0.45, 0), Vector3(1.8, 0.9, 3.6))
 	boat_wake = Node3D.new()
 	add_child(boat_wake)
@@ -277,8 +281,6 @@ func _build_world() -> void:
 		xr_origin.add_child(camera)
 		left_controller = _make_controller("left_hand")
 		right_controller = _make_controller("right_hand")
-		_make_vr_held_oar(left_controller)
-		_make_vr_held_oar(right_controller)
 		left_controller.button_pressed.connect(_on_vr_left_button)
 		right_controller.button_pressed.connect(_on_vr_right_button)
 	else:
@@ -297,15 +299,15 @@ func _build_world() -> void:
 	var rod_asset := (load("res://GLB/Fishing_Rod.glb") as PackedScene).instantiate() as Node3D
 	rod_asset.scale = Vector3.ONE * 0.7
 	if vr_active:
-		# Align the imported grip with the tracked hand and the tip away from it.
-		rod_asset.rotation.z = PI
-		rod_asset.position.z = 0.70
+		# Match the same orientation as the boat oars and keep the handle at the grip.
+		rod_asset.rotation.x = PI / 2.0
+		rod_asset.position.y = -0.70
 	else:
 		# The asset's handle is on -Z; keep it near the player in desktop view.
 		rod_asset.rotation.y = PI
 	rod.add_child(rod_asset)
 	rod_tip = Node3D.new()
-	rod_tip.position = Vector3(0, 0, 1.72 if vr_active else -1.02)
+	rod_tip.position = Vector3(0, -1.72, 0) if vr_active else Vector3(0, 0, -1.02)
 	rod.add_child(rod_tip)
 	fish_display = Node3D.new()
 	fish_display.position = Vector3(0, -0.05, -2.0)
@@ -338,16 +340,6 @@ func _make_controller(tracker_path: String) -> XRController3D:
 	handle.mesh = mesh
 	controller.add_child(handle)
 	return controller
-
-func _make_vr_held_oar(controller: XRController3D) -> void:
-	var oar := (load("res://GLB/Paddle.glb") as PackedScene).instantiate() as Node3D
-	oar.name = "HeldOar"
-	oar.scale = Vector3.ONE * 0.7
-	oar.rotation.x = PI / 2.0
-	oar.position.y = -0.2
-	oar.visible = false
-	controller.add_child(oar)
-	vr_held_oars.append(oar)
 
 func _on_vr_left_button(action: String) -> void:
 	if action == "ax_button" and state == "idle" and not book_open and not map_open:
@@ -408,13 +400,25 @@ func _update_vr_rowing(delta: float) -> void:
 	vr_row_strength = 0.0
 	for index in range(2):
 		var controller: XRController3D = controllers[index]
-		var gripping := can_row and controller.get_is_active() and controller.get_float("grip") > 0.55
-		vr_holding_oar[index] = gripping
+		var pressed := controller.get_is_active() and controller.get_float("grip") > 0.55
+		var gripping := _update_oar_grab(index, controller.global_position, pressed, can_row)
 		vr_row_strength += _row_hand_strength(index, controller.position, gripping, delta) * 0.6
-		vr_held_oars[index].visible = gripping
-		boat_hull.get_node("LeftOar" if index == 0 else "RightOar").visible = not gripping
 	vr_row_strength = clampf(vr_row_strength, 0.0, 1.0)
 	rod.visible = not vr_holding_oar[1]
+
+func _update_oar_grab(index: int, hand_position: Vector3, pressed: bool, can_row: bool) -> bool:
+	var oar := boat_hull.get_node("LeftOar" if index == 0 else "RightOar") as Node3D
+	var grip_point := oar.get_node("GripPoint") as Marker3D
+	if not can_row or not pressed:
+		vr_holding_oar[index] = false
+	elif not vr_holding_oar[index] and hand_position.distance_to(grip_point.global_position) <= VR_OAR_GRAB_RADIUS:
+		vr_holding_oar[index] = true
+	if vr_holding_oar[index]:
+		# Rotate the attached oar about its boat-side pivot toward the hand.
+		var direction := boat_hull.global_basis.inverse() * (hand_position - oar.global_position)
+		if direction.length_squared() > 0.01:
+			oar.quaternion = Quaternion(Vector3.UP, direction.normalized())
+	return vr_holding_oar[index]
 
 func _turn_vr(axis: float, delta: float) -> void:
 	const DEADZONE := 0.2
@@ -1118,7 +1122,8 @@ func _update_boat_pose(delta: float) -> void:
 	var stroke_strength := clampf(boat_velocity.length() / 2.5, 0.0, 1.0)
 	for oar_name in ["LeftOar", "RightOar"]:
 		var oar := boat_hull.get_node(oar_name) as Node3D
-		oar.rotation.y = sin(water_time * 2.5) * 0.24 * stroke_strength
+		if not vr_active:
+			oar.rotation.y = sin(water_time * 2.5) * 0.24 * stroke_strength
 	boat_wake.visible = boat_velocity.length() > 0.25
 	boat_wake.position = boat.position
 	boat_wake.position.y = _water_height(boat.position.x, boat.position.z) + 0.08
@@ -1165,7 +1170,7 @@ func _interact() -> void:
 			var head_offset := camera.global_position - player.global_position
 			vr_boat_head_offset = Vector3(head_offset.x, 0, head_offset.z)
 		player.position = boat.position - vr_boat_head_offset + Vector3(0, 0.5, 0) if vr_active else boat.position + Vector3(0, 0.5, 0)
-		_show_message("Зажми хват и греби руками назад. Y — карта." if vr_active else "Плыви к одному из трёх участков. Открой карту клавишей M.", 6)
+		_show_message("Поднеси руки к вёслам, зажми хват и греби назад. Y — карта." if vr_active else "Плыви к одному из трёх участков. Открой карту клавишей M.", 6)
 	elif player.position.distance_to(Vector3(-2.5, 0, 21)) < 2.5:
 		book_open = true
 	elif player.position.distance_to(Vector3(2.8, 0, 21)) < 2.5:
@@ -1322,7 +1327,7 @@ func _update_ui() -> void:
 		map_legend.text = "ОРИЕНТИРЫ\n\n▲  Вы и направление взгляда\n\nКамышовая заводь — север\nСтарый причал — запад\nКоряжник — восток\nДом — у южного причала\n\nY — закрыть карту"
 		prompt.text = "Левый стик — движение   |   X — действие   |   Y — карта   |   A — книга"
 		if riding and state == "idle":
-			prompt.text = "Хват + движение рук назад — грести   |   Курок — заброс   |   Y — карта   |   X — выйти"
+			prompt.text = "Возьмись за рукоятки и греби назад   |   Курок — заброс   |   Y — карта   |   X — выйти"
 		elif state == "bite":
 			prompt.text = "ПОКЛЁВКА! Нажми правый курок"
 		elif state == "reeling":

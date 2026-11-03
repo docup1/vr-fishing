@@ -20,8 +20,7 @@ func run_test() -> void:
 	check(game.left_controller.tracker == "left_hand" and game.right_controller.tracker == "right_hand", "controller trackers")
 	check(game.rod.get_parent() == game.right_controller, "rod follows controller")
 	var rod_model := game.rod.get_child(0) as Node3D
-	check(rod_model.basis.z.normalized().dot(Vector3.BACK) > 0.99 and game.rod_tip.position.z > 1.5, "rod is reversed along the grip axis and the line starts at its tip")
-	check(rod_model.basis.x.normalized().dot(Vector3.RIGHT) < -0.99, "rod reel is flipped to the opposite side")
+	check(rod_model.basis.z.normalized().dot(Vector3.DOWN) > 0.99 and game.rod_tip.position.y < -1.5, "rod matches oar orientation and line starts at its tip")
 	for oar_name in ["LeftOar", "RightOar"]:
 		var paddle := game.boat_hull.get_node(oar_name).get_child(0) as Node3D
 		var imported_mesh := paddle.get_child(0) as Node3D
@@ -52,6 +51,15 @@ func run_test() -> void:
 	game._on_vr_left_button("ax_button")
 	check(game.riding, "X boards boat")
 	check(Vector2(game.camera.global_position.x - game.boat.global_position.x, game.camera.global_position.z - game.boat.global_position.z).length() < 0.001, "boarding centers the tracked head over the boat")
+	var oar := game.boat_hull.get_node("LeftOar") as Node3D
+	var pivot_before: Vector3 = oar.position
+	var grip_point := oar.get_node("GripPoint") as Node3D
+	check(not game._update_oar_grab(0, grip_point.global_position + Vector3(3, 0, 0), true, true), "cannot grab an oar from far away")
+	check(game._update_oar_grab(0, grip_point.global_position, true, true), "hand can grab an oar near its handle")
+	check(game._update_oar_grab(0, grip_point.global_position + Vector3(0, 0, 0.4), true, true), "moving hand keeps hold of the oar")
+	check(oar.get_parent() == game.boat_hull and oar.position.is_equal_approx(pivot_before), "oar pivot remains attached to the boat")
+	check(not game._update_oar_grab(0, grip_point.global_position, false, true), "releasing grip releases the oar")
+	check(oar.get_parent() == game.boat_hull and oar.position.is_equal_approx(pivot_before), "released oar stays attached to the boat")
 	var backward_local: Vector3 = game.xr_origin.global_basis.inverse() * game.camera.global_basis.z.normalized()
 	check(game._row_hand_strength(0, Vector3.ZERO, true, 0.05) == 0.0, "grabbing an oar does not create a stroke")
 	var stroke: float = game._row_hand_strength(0, backward_local * 0.08, true, 0.05)
