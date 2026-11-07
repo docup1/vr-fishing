@@ -6,6 +6,11 @@ const MapMarker = preload("res://map_marker.gd")
 # a tracked VR rig can feed the same actions in a later version.
 var camera: Camera3D
 var vr_active := false
+var vr_simulator := false
+var sim_grips := [false, false]
+var sim_hand_offsets := [Vector3.ZERO, Vector3.ZERO]
+var sim_hand_base := [Vector3.ZERO, Vector3.ZERO]
+var sim_hand_grabbed := [false, false]
 var xr_origin: XROrigin3D
 var left_controller: XRController3D
 var right_controller: XRController3D
@@ -124,7 +129,12 @@ const DOCK := Vector3(0, 0, 9)
 const BOAT_MOORING := Vector3(0, 0, 1.8)
 
 func _ready() -> void:
-	_init_vr()
+	vr_simulator = "--simulate-vr" in OS.get_cmdline_user_args()
+	if vr_simulator:
+		vr_active = true
+		save_path = "user://simulator_save.json"
+	else:
+		_init_vr()
 	_build_world()
 	if vr_active:
 		_apply_vr_texture_filter(self)
@@ -133,7 +143,7 @@ func _ready() -> void:
 	_build_ui()
 	_load_game()
 	_refresh_collection()
-	if not vr_active:
+	if not vr_active or vr_simulator:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_show_message("Осмотрись в доме. X — действие, Y — карта." if vr_active else "Осмотрись в доме. Таб — книга, E — взаимодействие.", 8.0)
 
@@ -279,6 +289,8 @@ func _build_world() -> void:
 		player.add_child(xr_origin)
 		camera = XRCamera3D.new()
 		xr_origin.add_child(camera)
+		if vr_simulator:
+			camera.position.y = 1.65
 		left_controller = _make_controller("left_hand")
 		right_controller = _make_controller("right_hand")
 		left_controller.button_pressed.connect(_on_vr_left_button)
@@ -359,9 +371,11 @@ func _on_vr_right_button(action: String) -> void:
 		_choose_fish(false)
 
 func _update_vr_input(delta: float) -> void:
+	if vr_simulator:
+		_update_simulated_hands(delta)
 	_update_vr_rowing(delta)
-	_update_vr_trigger(right_controller.get_float("trigger"))
-	var stick := right_controller.get_vector2("primary")
+	_update_vr_trigger(float(Input.is_key_pressed(KEY_SPACE)) if vr_simulator else right_controller.get_float("trigger"))
+	var stick := Vector2(float(Input.is_key_pressed(KEY_RIGHT)) - float(Input.is_key_pressed(KEY_LEFT)), float(Input.is_key_pressed(KEY_UP)) - float(Input.is_key_pressed(KEY_DOWN))) if vr_simulator and state == "reeling" else (Vector2.ZERO if vr_simulator else right_controller.get_vector2("primary"))
 	if state == "reeling":
 		aim_destination.x = clampf(aim_destination.x + stick.x * delta * 2.8, -FISHING_RANGE, FISHING_RANGE)
 		aim_destination.y = clampf(aim_destination.y + stick.y * delta * 2.8, -FISHING_RANGE, FISHING_RANGE)
@@ -400,7 +414,7 @@ func _update_vr_rowing(delta: float) -> void:
 	vr_row_strength = 0.0
 	for index in range(2):
 		var controller: XRController3D = controllers[index]
-		var pressed := controller.get_is_active() and controller.get_float("grip") > 0.55
+		var pressed: bool = sim_grips[index] if vr_simulator else controller.get_is_active() and controller.get_float("grip") > 0.55
 		var gripping := _update_oar_grab(index, controller.global_position, pressed, can_row)
 		vr_row_strength += _row_hand_strength(index, controller.position, gripping, delta) * 0.6
 	vr_row_strength = clampf(vr_row_strength, 0.0, 1.0)
@@ -421,6 +435,29 @@ func _update_oar_grab(index: int, hand_position: Vector3, pressed: bool, can_row
 			oar.quaternion = Quaternion(Vector3.UP, direction.normalized())
 	return vr_holding_oar[index]
 
+func _update_simulated_hands(delta: float) -> void:
+	var controllers := [left_controller, right_controller]
+	for index in range(2):
+		var controller: XRController3D = controllers[index]
+		var oar := boat_hull.get_node("RightOar" if index == 0 else "LeftOar") as Node3D
+		var handle := oar.get_node("GripPoint") as Node3D
+		if riding:
+			if not sim_grips[index]:
+				controller.global_position = handle.global_position
+				sim_hand_offsets[index] = Vector3.ZERO
+				sim_hand_grabbed[index] = false
+			else:
+				if not sim_hand_grabbed[index]:
+					sim_hand_base[index] = controller.position
+					sim_hand_grabbed[index] = true
+				var back := Input.is_key_pressed(KEY_K if index == 0 else KEY_DOWN)
+				var forward := Input.is_key_pressed(KEY_I if index == 0 else KEY_UP)
+				var movement := float(back) - float(forward)
+				sim_hand_offsets[index].z = clampf(sim_hand_offsets[index].z + movement * delta * 1.5, -0.45, 0.45)
+				controller.position = sim_hand_base[index] + (xr_origin.global_basis.inverse() * camera.global_basis.z) * sim_hand_offsets[index].z
+		else:
+			controller.position = camera.position + Vector3(-0.3 if index == 0 else 0.3, -0.4, -0.4)
+
 func _turn_vr(axis: float, delta: float) -> void:
 	const DEADZONE := 0.2
 	if absf(axis) <= DEADZONE:
@@ -433,6 +470,8 @@ func _turn_vr(axis: float, delta: float) -> void:
 	xr_origin.global_position += Vector3(head_delta.x, 0, head_delta.z)
 
 func _movement_input() -> Vector2:
+	if vr_simulator:
+		return Vector2(float(Input.is_key_pressed(KEY_D)) - float(Input.is_key_pressed(KEY_A)), float(Input.is_key_pressed(KEY_S)) - float(Input.is_key_pressed(KEY_W)))
 	if vr_active:
 		var stick := left_controller.get_vector2("primary")
 		if stick.length() < 0.2:
@@ -711,7 +750,7 @@ func _add_solid_box(parent: Node3D, pos: Vector3, size: Vector3) -> StaticBody3D
 func _build_ui() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 2
-	if vr_active:
+	if vr_active and not vr_simulator:
 		vr_ui_viewport = SubViewport.new()
 		vr_ui_viewport.size = Vector2i(1280, 720)
 		vr_ui_viewport.transparent_bg = true
@@ -834,7 +873,7 @@ func _label(parent: Node, pos: Vector2, font_size: int) -> Label:
 	return label
 
 func _layout_ui() -> void:
-	var screen := Vector2(vr_ui_viewport.size) if vr_active else get_viewport().get_visible_rect().size
+	var screen := Vector2(vr_ui_viewport.size) if is_instance_valid(vr_ui_viewport) else get_viewport().get_visible_rect().size
 	var margin := 24.0
 	var small_screen := screen.x < 980.0 or screen.y < 560.0
 	prompt.add_theme_font_size_override("font_size", 14 if small_screen else 18)
@@ -887,6 +926,25 @@ func _layout_ui() -> void:
 	map_footer.position = map_background.position + Vector2(24, map_height - 35)
 
 func _unhandled_input(event: InputEvent) -> void:
+	if vr_simulator:
+		if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+			_turn_vr(signf(event.relative.x), absf(event.relative.x) * 0.001)
+			camera.rotation.x = clampf(camera.rotation.x - event.relative.y * 0.0025, -1.25, 1.1)
+		elif event is InputEventKey and not event.echo:
+			match event.keycode:
+				KEY_Q: sim_grips[0] = event.pressed
+				KEY_E: sim_grips[1] = event.pressed
+				KEY_X:
+					if event.pressed: _on_vr_left_button("ax_button")
+				KEY_Y:
+					if event.pressed: _on_vr_left_button("by_button")
+				KEY_1:
+					if event.pressed: _on_vr_right_button("ax_button")
+				KEY_2:
+					if event.pressed: _on_vr_right_button("by_button")
+				KEY_ESCAPE:
+					if event.pressed: Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED else Input.MOUSE_MODE_CAPTURED
+		return
 	if vr_active:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
@@ -951,7 +1009,7 @@ func _process(delta: float) -> void:
 		if bite_seconds <= 0.0:
 			_end_attempt("Рыба сорвалась. Попробуй ещё раз.")
 	elif state == "reeling":
-		_advance_reeling(delta, right_controller.get_float("trigger") > 0.55 if vr_active else Input.is_key_pressed(KEY_SPACE))
+		_advance_reeling(delta, (Input.is_key_pressed(KEY_SPACE) if vr_simulator else right_controller.get_float("trigger") > 0.55) if vr_active else Input.is_key_pressed(KEY_SPACE))
 		if progress >= 1.0:
 			energy = maxf(0, energy - 8)
 			state = "dialogue"
@@ -1338,6 +1396,8 @@ func _update_ui() -> void:
 		elif book_open:
 			overlay.text = overlay.text.replace("Tab — закрыть книгу", "A — закрыть книгу")
 		map_footer.text = "Y — закрыть карту"
+		if vr_simulator and state != "dialogue":
+			prompt.text = "SIM: WASD / мышь  |  X — действие  |  Q/E — хват  |  I/K и ↑/↓ — гребок  |  Пробел — удочка"
 
 func _show_message(text: String, duration: float) -> void:
 	if vr_active:
