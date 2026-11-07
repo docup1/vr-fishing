@@ -8,6 +8,7 @@ var camera: Camera3D
 var vr_active := false
 var vr_simulator := false
 var sim_grips := [false, false]
+var sim_joy_id := -1
 var sim_hand_offsets := [Vector3.ZERO, Vector3.ZERO]
 var sim_hand_base := [Vector3.ZERO, Vector3.ZERO]
 var sim_hand_grabbed := [false, false]
@@ -372,10 +373,14 @@ func _on_vr_right_button(action: String) -> void:
 
 func _update_vr_input(delta: float) -> void:
 	if vr_simulator:
+		_update_sim_gamepad(delta)
 		_update_simulated_hands(delta)
 	_update_vr_rowing(delta)
-	_update_vr_trigger(float(Input.is_key_pressed(KEY_SPACE)) if vr_simulator else right_controller.get_float("trigger"))
+	_update_vr_trigger(float(Input.is_key_pressed(KEY_SPACE) or (sim_joy_id >= 0 and Input.is_joy_button_pressed(sim_joy_id, JOY_BUTTON_RIGHT_SHOULDER))) if vr_simulator else right_controller.get_float("trigger"))
 	var stick := Vector2(float(Input.is_key_pressed(KEY_RIGHT)) - float(Input.is_key_pressed(KEY_LEFT)), float(Input.is_key_pressed(KEY_UP)) - float(Input.is_key_pressed(KEY_DOWN))) if vr_simulator and state == "reeling" else (Vector2.ZERO if vr_simulator else right_controller.get_vector2("primary"))
+	if vr_simulator and state == "reeling" and sim_joy_id >= 0:
+		stick += Vector2(Input.get_joy_axis(sim_joy_id, JOY_AXIS_RIGHT_X), -Input.get_joy_axis(sim_joy_id, JOY_AXIS_RIGHT_Y))
+		stick = stick.limit_length(1.0)
 	if state == "reeling":
 		aim_destination.x = clampf(aim_destination.x + stick.x * delta * 2.8, -FISHING_RANGE, FISHING_RANGE)
 		aim_destination.y = clampf(aim_destination.y + stick.y * delta * 2.8, -FISHING_RANGE, FISHING_RANGE)
@@ -414,7 +419,7 @@ func _update_vr_rowing(delta: float) -> void:
 	vr_row_strength = 0.0
 	for index in range(2):
 		var controller: XRController3D = controllers[index]
-		var pressed: bool = sim_grips[index] if vr_simulator else controller.get_is_active() and controller.get_float("grip") > 0.55
+		var pressed: bool = (sim_grips[index] or (sim_joy_id >= 0 and Input.get_joy_axis(sim_joy_id, JOY_AXIS_TRIGGER_LEFT if index == 0 else JOY_AXIS_TRIGGER_RIGHT) > 0.4)) if vr_simulator else controller.get_is_active() and controller.get_float("grip") > 0.55
 		var gripping := _update_oar_grab(index, controller.global_position, pressed, can_row)
 		vr_row_strength += _row_hand_strength(index, controller.position, gripping, delta) * 0.6
 	vr_row_strength = clampf(vr_row_strength, 0.0, 1.0)
@@ -435,6 +440,22 @@ func _update_oar_grab(index: int, hand_position: Vector3, pressed: bool, can_row
 			oar.quaternion = Quaternion(Vector3.UP, direction.normalized())
 	return vr_holding_oar[index]
 
+func _update_sim_gamepad(delta: float) -> void:
+	var devices := Input.get_connected_joypads()
+	if devices.is_empty():
+		sim_joy_id = -1
+		return
+	if not devices.has(sim_joy_id):
+		sim_joy_id = devices[0]
+		if Input.has_joy_motion_sensors(sim_joy_id):
+			Input.set_joy_motion_sensors_enabled(sim_joy_id, true)
+	if Input.has_joy_motion_sensors(sim_joy_id):
+		var gyro := Input.get_joy_gyroscope(sim_joy_id)
+		if absf(gyro.y) > 0.025:
+			_turn_vr(signf(gyro.y), minf(absf(gyro.y) * delta / VR_TURN_SPEED, 0.05))
+		if absf(gyro.x) > 0.025:
+			camera.rotation.x = clampf(camera.rotation.x - gyro.x * delta, -1.25, 1.1)
+
 func _update_simulated_hands(delta: float) -> void:
 	var controllers := [left_controller, right_controller]
 	for index in range(2):
@@ -442,21 +463,43 @@ func _update_simulated_hands(delta: float) -> void:
 		var oar := boat_hull.get_node("RightOar" if index == 0 else "LeftOar") as Node3D
 		var handle := oar.get_node("GripPoint") as Node3D
 		if riding:
-			if not sim_grips[index]:
-				controller.global_position = handle.global_position
-				sim_hand_offsets[index] = Vector3.ZERO
+			var holding: bool = sim_grips[index] or (sim_joy_id >= 0 and Input.get_joy_axis(sim_joy_id, JOY_AXIS_TRIGGER_LEFT if index == 0 else JOY_AXIS_TRIGGER_RIGHT) > 0.4)
+			if not holding:
+				if sim_hand_grabbed[index]:
+					sim_hand_offsets[index] = Vector3.ZERO
 				sim_hand_grabbed[index] = false
+				if sim_joy_id >= 0:
+					var free_x := Input.get_joy_axis(sim_joy_id, JOY_AXIS_LEFT_X if index == 0 else JOY_AXIS_RIGHT_X)
+					var free_y := Input.get_joy_axis(sim_joy_id, JOY_AXIS_LEFT_Y if index == 0 else JOY_AXIS_RIGHT_Y)
+					if absf(free_x) > 0.15: sim_hand_offsets[index].x = clampf(sim_hand_offsets[index].x + free_x * delta, -0.4, 0.4)
+					if absf(free_y) > 0.15: sim_hand_offsets[index].z = clampf(sim_hand_offsets[index].z + free_y * delta, -0.45, 0.45)
+				controller.global_position = handle.global_position + camera.global_basis.x * sim_hand_offsets[index].x + camera.global_basis.z * sim_hand_offsets[index].z
 			else:
 				if not sim_hand_grabbed[index]:
 					sim_hand_base[index] = controller.position
+					sim_hand_offsets[index] = Vector3.ZERO
 					sim_hand_grabbed[index] = true
 				var back := Input.is_key_pressed(KEY_K if index == 0 else KEY_DOWN)
 				var forward := Input.is_key_pressed(KEY_I if index == 0 else KEY_UP)
 				var movement := float(back) - float(forward)
+				var sideways := 0.0
+				if sim_joy_id >= 0:
+					var axis_x := JOY_AXIS_LEFT_X if index == 0 else JOY_AXIS_RIGHT_X
+					var axis_y := JOY_AXIS_LEFT_Y if index == 0 else JOY_AXIS_RIGHT_Y
+					var stick_x := Input.get_joy_axis(sim_joy_id, axis_x)
+					var stick_y := Input.get_joy_axis(sim_joy_id, axis_y)
+					if absf(stick_x) > 0.15: sideways = stick_x
+					if absf(stick_y) > 0.15: movement += stick_y
+				sim_hand_offsets[index].x = clampf(sim_hand_offsets[index].x + sideways * delta, -0.4, 0.4)
 				sim_hand_offsets[index].z = clampf(sim_hand_offsets[index].z + movement * delta * 1.5, -0.45, 0.45)
-				controller.position = sim_hand_base[index] + (xr_origin.global_basis.inverse() * camera.global_basis.z) * sim_hand_offsets[index].z
+				controller.position = sim_hand_base[index] + (xr_origin.global_basis.inverse() * (camera.global_basis.z * sim_hand_offsets[index].z + camera.global_basis.x * sim_hand_offsets[index].x))
 		else:
-			controller.position = camera.position + Vector3(-0.3 if index == 0 else 0.3, -0.4, -0.4)
+			if sim_joy_id >= 0:
+				var free_x := Input.get_joy_axis(sim_joy_id, JOY_AXIS_LEFT_X if index == 0 else JOY_AXIS_RIGHT_X)
+				var free_y := Input.get_joy_axis(sim_joy_id, JOY_AXIS_LEFT_Y if index == 0 else JOY_AXIS_RIGHT_Y)
+				if absf(free_x) > 0.15: sim_hand_offsets[index].x = clampf(sim_hand_offsets[index].x + free_x * delta, -0.4, 0.4)
+				if absf(free_y) > 0.15: sim_hand_offsets[index].z = clampf(sim_hand_offsets[index].z + free_y * delta, -0.45, 0.45)
+			controller.position = camera.position + Vector3(-0.3 if index == 0 else 0.3, -0.4, -0.4) + sim_hand_offsets[index]
 
 func _turn_vr(axis: float, delta: float) -> void:
 	const DEADZONE := 0.2
@@ -471,7 +514,10 @@ func _turn_vr(axis: float, delta: float) -> void:
 
 func _movement_input() -> Vector2:
 	if vr_simulator:
-		return Vector2(float(Input.is_key_pressed(KEY_D)) - float(Input.is_key_pressed(KEY_A)), float(Input.is_key_pressed(KEY_S)) - float(Input.is_key_pressed(KEY_W)))
+		var keyboard := Vector2(float(Input.is_key_pressed(KEY_D)) - float(Input.is_key_pressed(KEY_A)), float(Input.is_key_pressed(KEY_S)) - float(Input.is_key_pressed(KEY_W)))
+		if sim_joy_id >= 0:
+			keyboard += Vector2(float(Input.is_joy_button_pressed(sim_joy_id, JOY_BUTTON_DPAD_RIGHT)) - float(Input.is_joy_button_pressed(sim_joy_id, JOY_BUTTON_DPAD_LEFT)), float(Input.is_joy_button_pressed(sim_joy_id, JOY_BUTTON_DPAD_DOWN)) - float(Input.is_joy_button_pressed(sim_joy_id, JOY_BUTTON_DPAD_UP)))
+		return keyboard.limit_length(1.0)
 	if vr_active:
 		var stick := left_controller.get_vector2("primary")
 		if stick.length() < 0.2:
@@ -927,7 +973,13 @@ func _layout_ui() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if vr_simulator:
-		if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		if event is InputEventJoypadButton and event.pressed:
+			match event.button_index:
+				JOY_BUTTON_A: _on_vr_left_button("ax_button")
+				JOY_BUTTON_Y: _on_vr_left_button("by_button")
+				JOY_BUTTON_X: _on_vr_right_button("ax_button")
+				JOY_BUTTON_B: _on_vr_right_button("by_button")
+		elif event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 			_turn_vr(signf(event.relative.x), absf(event.relative.x) * 0.001)
 			camera.rotation.x = clampf(camera.rotation.x - event.relative.y * 0.0025, -1.25, 1.1)
 		elif event is InputEventKey and not event.echo:
@@ -1009,7 +1061,7 @@ func _process(delta: float) -> void:
 		if bite_seconds <= 0.0:
 			_end_attempt("Рыба сорвалась. Попробуй ещё раз.")
 	elif state == "reeling":
-		_advance_reeling(delta, (Input.is_key_pressed(KEY_SPACE) if vr_simulator else right_controller.get_float("trigger") > 0.55) if vr_active else Input.is_key_pressed(KEY_SPACE))
+		_advance_reeling(delta, ((Input.is_key_pressed(KEY_SPACE) or (sim_joy_id >= 0 and Input.is_joy_button_pressed(sim_joy_id, JOY_BUTTON_RIGHT_SHOULDER))) if vr_simulator else right_controller.get_float("trigger") > 0.55) if vr_active else Input.is_key_pressed(KEY_SPACE))
 		if progress >= 1.0:
 			energy = maxf(0, energy - 8)
 			state = "dialogue"
