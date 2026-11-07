@@ -452,9 +452,9 @@ func _update_sim_gamepad(delta: float) -> void:
 	if Input.has_joy_motion_sensors(sim_joy_id):
 		var gyro := Input.get_joy_gyroscope(sim_joy_id)
 		if absf(gyro.y) > 0.025:
-			_turn_vr(signf(gyro.y), minf(absf(gyro.y) * delta / VR_TURN_SPEED, 0.05))
+			_turn_vr(-signf(gyro.y), minf(absf(gyro.y) * delta / VR_TURN_SPEED, 0.05))
 		if absf(gyro.x) > 0.025:
-			camera.rotation.x = clampf(camera.rotation.x - gyro.x * delta, -1.25, 1.1)
+			camera.rotation.x = clampf(camera.rotation.x + gyro.x * delta, -1.25, 1.1)
 
 func _update_simulated_hands(delta: float) -> void:
 	var controllers := [left_controller, right_controller]
