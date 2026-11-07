@@ -407,7 +407,8 @@ func _update_vr_rowing(delta: float) -> void:
 	rod.visible = not vr_holding_oar[1]
 
 func _update_oar_grab(index: int, hand_position: Vector3, pressed: bool, can_row: bool) -> bool:
-	var oar := boat_hull.get_node("LeftOar" if index == 0 else "RightOar") as Node3D
+	# The boat's +Z bow faces the player, so its model sides are reversed in view.
+	var oar := boat_hull.get_node("RightOar" if index == 0 else "LeftOar") as Node3D
 	var grip_point := oar.get_node("GripPoint") as Marker3D
 	if not can_row or not pressed:
 		vr_holding_oar[index] = false
@@ -1084,8 +1085,8 @@ func _advance_boat(delta: float, v: Vector2) -> void:
 	var direction := _movement_direction(v)
 	direction.y = 0.0
 	# A boat carries momentum and eases to a stop after the player releases WASD.
-	var acceleration := 1.8 if v.length_squared() > 0.0 else 1.0
-	boat_velocity = boat_velocity.move_toward(direction * 3.0, acceleration * delta)
+	var acceleration := (4.0 if vr_active else 1.8) if v.length_squared() > 0.0 else (0.55 if vr_active else 1.0)
+	boat_velocity = boat_velocity.move_toward(direction * (4.2 if vr_active else 3.0), acceleration * delta)
 	var next_x := clampf(boat.position.x + boat_velocity.x * delta, -45.0, 45.0)
 	if _boat_blocked(Vector2(next_x, boat.position.z)):
 		boat_velocity.x = 0.0

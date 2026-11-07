@@ -51,7 +51,7 @@ func run_test() -> void:
 	game._on_vr_left_button("ax_button")
 	check(game.riding, "X boards boat")
 	check(Vector2(game.camera.global_position.x - game.boat.global_position.x, game.camera.global_position.z - game.boat.global_position.z).length() < 0.001, "boarding centers the tracked head over the boat")
-	var oar := game.boat_hull.get_node("LeftOar") as Node3D
+	var oar := game.boat_hull.get_node("RightOar") as Node3D
 	var pivot_before: Vector3 = oar.position
 	var grip_point := oar.get_node("GripPoint") as Node3D
 	check(not game._update_oar_grab(0, grip_point.global_position + Vector3(3, 0, 0), true, true), "cannot grab an oar from far away")
