@@ -51,6 +51,8 @@ var water_material: ShaderMaterial
 var water_time := 0.0
 var boat_velocity := Vector3.ZERO
 var vr_boat_head_offset := Vector3.ZERO
+var vr_boat_last_yaw := 0.0
+var oar_water_fx: Array[Node3D] = []
 var player_velocity := Vector3.ZERO
 var bobber: Node3D
 var fishing_center := Vector3.ZERO
@@ -272,6 +274,12 @@ func _build_world() -> void:
 		grip_point.name = "GripPoint"
 		grip_point.position.y = 0.68
 		pivot.add_child(grip_point)
+		var water_fx := Node3D.new()
+		water_fx.name = "OarWaterEffect"
+		add_child(water_fx)
+		_add_ring(water_fx, 0.22, 0.025, Color(0.68, 0.9, 0.87))
+		water_fx.visible = false
+		oar_water_fx.append(water_fx)
 	boat_blocker = _add_solid_box(boat, Vector3(0, 0.45, 0), Vector3(1.8, 0.9, 3.6))
 	boat_wake = Node3D.new()
 	add_child(boat_wake)
@@ -425,10 +433,10 @@ func _row_hand_strength(index: int, local_position: Vector3, gripping: bool, del
 	vr_row_previous[index] = local_position
 	# Compare tracked hand movement in the play space, excluding boat motion.
 	var hand_velocity := xr_origin.global_basis * displacement / delta
-	var forward := -camera.global_basis.z
+	var forward := boat_hull.global_basis.z
 	forward.y = 0.0
 	forward = forward.normalized()
-	return clampf(-hand_velocity.dot(forward) / 1.2, 0.0, 1.0)
+	return clampf(-hand_velocity.dot(forward) / 1.2, -1.0, 1.0)
 
 func _update_vr_rowing(delta: float) -> void:
 	var can_row := riding and state == "idle" and not book_open and not map_open
@@ -440,10 +448,24 @@ func _update_vr_rowing(delta: float) -> void:
 		var hand_position: Vector3 = controller.global_position if vr_simulator else vr_hand_anchors[index].global_position
 		var gripping := _update_oar_grab(index, hand_position, pressed, can_row)
 		var local_hand := xr_origin.to_local(hand_position)
-		vr_oar_force[index] = _row_hand_strength(index, local_hand, gripping, delta)
+		var hand_force := _row_hand_strength(index, local_hand, gripping, delta)
+		var oar := boat_hull.get_node("RightOar" if index == 0 else "LeftOar") as Node3D
+		var paddle := oar.get_child(0) as Node3D
+		# Broad end of the GLB is +Z, 1.33 m from the model origin after scaling.
+		var blade := paddle.to_global(Vector3(0, 0, 1.33 / 0.7))
+		var depth := _water_height(blade.x, blade.z) - blade.y
+		var submerged := gripping and depth > 0.0
+		vr_oar_force[index] = _oar_water_force(hand_force, depth, gripping)
+		var fx := oar_water_fx[index]
+		fx.visible = submerged and absf(hand_force) > 0.08
+		fx.global_position = Vector3(blade.x, _water_height(blade.x, blade.z) + 0.04, blade.z)
+		fx.scale = Vector3.ONE * (0.8 + absf(hand_force) * 0.55)
 		vr_row_strength += vr_oar_force[index] * 0.6
 	vr_row_strength = clampf(vr_row_strength, 0.0, 1.0)
 	rod.visible = not vr_holding_oar[1]
+
+func _oar_water_force(hand_force: float, depth: float, gripping: bool) -> float:
+	return hand_force * clampf(depth / 0.15, 0.0, 1.0) if gripping and depth > 0.0 else 0.0
 
 func _update_oar_grab(index: int, hand_position: Vector3, pressed: bool, can_row: bool) -> bool:
 	# The boat's +Z bow faces the player, so its model sides are reversed in view.
@@ -461,6 +483,8 @@ func _update_oar_grab(index: int, hand_position: Vector3, pressed: bool, can_row
 		# Rotate the attached oar about its boat-side pivot toward the hand.
 		var direction := boat_hull.global_basis.inverse() * (hand_position - oar.global_position)
 		if direction.length_squared() > 0.01:
+			# Limit the pivot travel so the blade stays on the water side of the oarlock.
+			direction.y = maxf(direction.y, direction.length() * 0.45)
 			oar.quaternion = Quaternion(Vector3.UP, direction.normalized())
 	return vr_holding_oar[index]
 
@@ -1219,8 +1243,8 @@ func _move_boat(delta: float) -> void:
 func _advance_rowing_boat(delta: float, left_force: float, right_force: float) -> void:
 	# Oars act independently in the horizontal plane; equal strokes propel
 	# forward, while unequal strokes create yaw around the hull's centre.
-	var left := clampf(left_force, 0.0, 1.0)
-	var right := clampf(right_force, 0.0, 1.0)
+	var left := clampf(left_force, -1.0, 1.0)
+	var right := clampf(right_force, -1.0, 1.0)
 	var forward := boat_hull.global_basis.z
 	forward.y = 0.0
 	forward = forward.normalized()
@@ -1285,7 +1309,14 @@ func _update_boat_pose(delta: float) -> void:
 	boat_wake.scale = Vector3(1.0, 1.0, 1.0 + boat_velocity.length() * 0.3)
 	if not riding:
 		return
-	player.position = boat.position - vr_boat_head_offset if vr_active else boat.position
+	if vr_active:
+		var yaw_delta := angle_difference(vr_boat_last_yaw, boat_hull.rotation.y)
+		player.rotate_y(yaw_delta)
+		vr_boat_last_yaw = boat_hull.rotation.y
+		var head_offset := player.global_basis * vr_boat_head_offset
+		player.position = boat.position - Vector3(head_offset.x, 0, head_offset.z)
+	else:
+		player.position = boat.position
 	# Keep the camera level for comfort; only a small vertical bob follows the hull.
 	player.position.y = 0.5 if vr_active else 0.5 + boat_hull.position.y
 
@@ -1328,8 +1359,11 @@ func _interact() -> void:
 				boat_hull.rotation.y = atan2(look_forward.x, look_forward.z)
 		if vr_active:
 			var head_offset := camera.global_position - player.global_position
-			vr_boat_head_offset = Vector3(head_offset.x, 0, head_offset.z)
-		player.position = boat.position - vr_boat_head_offset + Vector3(0, 0.5, 0) if vr_active else boat.position + Vector3(0, 0.5, 0)
+			vr_boat_head_offset = player.global_basis.inverse() * Vector3(head_offset.x, 0, head_offset.z)
+			vr_boat_last_yaw = boat_hull.rotation.y
+			player.position = boat.position - Vector3(head_offset.x, 0, head_offset.z) + Vector3(0, 0.5, 0)
+		else:
+			player.position = boat.position + Vector3(0, 0.5, 0)
 		_show_message("Поднеси руки к вёслам, зажми хват и греби назад. Y — карта." if vr_active else "Плыви к одному из трёх участков. Открой карту клавишей M.", 6)
 	elif player.position.distance_to(Vector3(-2.5, 0, 21)) < 2.5:
 		book_open = true

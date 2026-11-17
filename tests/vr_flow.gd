@@ -52,6 +52,11 @@ func run_test() -> void:
 	game._on_vr_left_button("ax_button")
 	check(game.riding, "X boards boat")
 	check(Vector2(game.camera.global_position.x - game.boat.global_position.x, game.camera.global_position.z - game.boat.global_position.z).length() < 0.001, "boarding centers the tracked head over the boat")
+	var player_yaw_before: float = game.player.rotation.y
+	game.boat_hull.rotation.y += 0.4
+	game._update_boat_pose(0.016)
+	check(absf(angle_difference(player_yaw_before, game.player.rotation.y) - 0.4) < 0.001, "boat rotation carries player orientation")
+	check(Vector2(game.camera.global_position.x - game.boat.global_position.x, game.camera.global_position.z - game.boat.global_position.z).length() < 0.001, "boat rotation keeps head centered")
 	var oar := game.boat_hull.get_node("RightOar") as Node3D
 	var pivot_before: Vector3 = oar.position
 	var grip_point := oar.get_node("GripPoint") as Node3D
@@ -61,18 +66,23 @@ func run_test() -> void:
 	check(oar.get_parent() == game.boat_hull and oar.position.is_equal_approx(pivot_before), "oar pivot remains attached to the boat")
 	check(not game._update_oar_grab(0, grip_point.global_position, false, true), "releasing grip releases the oar")
 	check(oar.get_parent() == game.boat_hull and oar.position.is_equal_approx(pivot_before), "released oar stays attached to the boat")
-	var backward_local: Vector3 = game.xr_origin.global_basis.inverse() * game.camera.global_basis.z.normalized()
+	var backward_local: Vector3 = game.xr_origin.global_basis.inverse() * -game.boat_hull.global_basis.z.normalized()
 	check(game._row_hand_strength(0, Vector3.ZERO, true, 0.05) == 0.0, "grabbing an oar does not create a stroke")
 	var stroke: float = game._row_hand_strength(0, backward_local * 0.08, true, 0.05)
 	check(stroke > 0.5, "pulling the tracked hand backward creates a stroke")
-	check(game._row_hand_strength(0, Vector3.ZERO, true, 0.05) == 0.0, "moving the hand forward does not propel the boat")
+	check(game._row_hand_strength(0, Vector3.ZERO, true, 0.05) < -0.5, "opposite stroke creates reverse force")
 	check(game._row_hand_strength(0, Vector3.ZERO, false, 0.05) == 0.0, "released hand does not propel the boat")
+	check(game._oar_water_force(1.0, -0.1, true) == 0.0, "raised blade creates no thrust")
+	check(game._oar_water_force(-1.0, 0.3, true) < 0.0, "submerged reverse stroke creates reverse thrust")
 	game.boat.position = Vector3(0, 0, -5)
 	game.boat_hull.rotation = Vector3.ZERO
 	game.boat_velocity = Vector3.ZERO
 	game.boat_yaw_velocity = 0.0
 	game._advance_rowing_boat(0.1, 1.0, 1.0)
 	check(game.boat_velocity.z > 0 and absf(game.boat_yaw_velocity) < 0.001, "equal strokes push forward without turning")
+	game.boat_velocity = Vector3.ZERO
+	game._advance_rowing_boat(0.1, -1.0, -1.0)
+	check(game.boat_velocity.z < 0, "opposite strokes move the boat backward")
 	game.boat_yaw_velocity = 0.0
 	game._advance_rowing_boat(0.1, 1.0, 0.0)
 	check(game.boat_yaw_velocity > 0, "left stroke turns boat")
