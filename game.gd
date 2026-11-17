@@ -24,6 +24,7 @@ var vr_row_strength := 0.0
 var vr_oar_force := [0.0, 0.0]
 var boat_yaw_velocity := 0.0
 var vr_holding_oar := [false, false]
+var vr_haptic_cooldown := [0.0, 0.0]
 var vr_oar_grab_height := [0.0, 0.0]
 var vr_oar_grab_direction := [Vector3.UP, Vector3.UP]
 const VR_OAR_GRAB_RADIUS := 0.65
@@ -465,9 +466,13 @@ func _update_vr_rowing(delta: float) -> void:
 	vr_row_strength = 0.0
 	for index in range(2):
 		var controller: XRController3D = controllers[index]
+		vr_haptic_cooldown[index] = maxf(0.0, vr_haptic_cooldown[index] - delta)
 		var pressed: bool = (sim_grips[index] or (sim_joy_id >= 0 and Input.get_joy_axis(sim_joy_id, JOY_AXIS_TRIGGER_LEFT if index == 0 else JOY_AXIS_TRIGGER_RIGHT) > 0.4)) if vr_simulator else controller.get_is_active() and controller.get_float("grip") > 0.55
 		var hand_position: Vector3 = controller.global_position if vr_simulator else vr_hand_anchors[index].global_position
+		var was_gripping: bool = vr_holding_oar[index]
 		var gripping := _update_oar_grab(index, hand_position, pressed, can_row, delta)
+		if gripping and not was_gripping:
+			_oar_haptic(index, 0.35, 0.07)
 		var local_hand := xr_origin.to_local(hand_position)
 		var hand_force := _row_hand_strength(index, local_hand, gripping, delta)
 		var oar := boat_hull.get_node("RightOar" if index == 0 else "LeftOar") as Node3D
@@ -477,6 +482,9 @@ func _update_vr_rowing(delta: float) -> void:
 		var depth := _water_height(blade.x, blade.z) - blade.y
 		var submerged := depth > 0.0
 		vr_oar_force[index] = _oar_water_force(hand_force, depth, gripping)
+		if gripping and absf(vr_oar_force[index]) > 0.15 and vr_haptic_cooldown[index] <= 0.0:
+			_oar_haptic(index, 0.1 + absf(vr_oar_force[index]) * 0.22, 0.08)
+			vr_haptic_cooldown[index] = 0.12
 		var fx := oar_water_fx[index]
 		# Show a waterline ring even when the oar is still or not held.
 		fx.visible = submerged
@@ -485,6 +493,14 @@ func _update_vr_rowing(delta: float) -> void:
 		vr_row_strength += vr_oar_force[index] * 0.6
 	vr_row_strength = clampf(vr_row_strength, 0.0, 1.0)
 	rod.visible = not vr_holding_oar[1]
+
+func _oar_haptic(index: int, intensity: float, duration: float) -> void:
+	if vr_simulator:
+		if sim_joy_id >= 0:
+			Input.start_joy_vibration(sim_joy_id, intensity if index == 0 else 0.0, intensity if index == 1 else 0.0, duration)
+	elif XRServer.primary_interface:
+		var controller := left_controller if index == 0 else right_controller
+		XRServer.primary_interface.trigger_haptic_pulse("haptic", controller.tracker, 0.0, clampf(intensity * XRToolsUserSettings.haptics_scale, 0.0, 1.0), duration, 0.0)
 
 func _oar_water_force(hand_force: float, depth: float, gripping: bool) -> float:
 	return hand_force * clampf(depth / 0.15, 0.0, 1.0) if gripping and depth > 0.0 else 0.0
