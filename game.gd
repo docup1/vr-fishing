@@ -132,6 +132,7 @@ const ZONES := [
 ]
 const SAVE_PATH := "user://fishing_save.json"
 var save_path := SAVE_PATH
+var persistence_enabled := false
 const DOCK := Vector3(0, 0, 9)
 const BOAT_MOORING := Vector3(0, 0, 1.8)
 
@@ -267,7 +268,7 @@ func _build_world() -> void:
 	for side in [-1.0, 1.0]:
 		var pivot := Node3D.new()
 		pivot.name = "LeftOar" if side < 0 else "RightOar"
-		pivot.position = Vector3(side * 0.82, 0.65, 0.2)
+		pivot.position = Vector3(side * 0.98, 0.65, 0.2)
 		pivot.rotation.z = side * 0.85
 		boat_hull.add_child(pivot)
 		var paddle := (load("res://GLB/Paddle.glb") as PackedScene).instantiate() as Node3D
@@ -1589,11 +1590,15 @@ func _show_message(text: String, duration: float) -> void:
 	message_time = duration
 
 func _save_game() -> void:
+	if not persistence_enabled:
+		return
 	var file := FileAccess.open(save_path, FileAccess.WRITE)
 	if file:
 		file.store_string(JSON.stringify({"clock": clock_minutes, "energy": energy, "story": known_story, "boss": caught_boss, "boss_in_box": boss_in_box, "other": caught_other, "attempts": attempts, "story_zones": story_zones, "caught_bosses": caught_bosses, "stored_fish": stored_fish, "pending_fish": pending_fish}))
 
 func _load_game() -> void:
+	if not persistence_enabled:
+		return
 	if not FileAccess.file_exists(save_path): return
 	var file := FileAccess.open(save_path, FileAccess.READ)
 	if file == null: return

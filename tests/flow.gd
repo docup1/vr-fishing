@@ -11,8 +11,24 @@ func check(condition: bool, description: String) -> void:
 		failures += 1
 
 func run_flow() -> void:
+	var reset_path := "user://test_reset_%s.json" % str(Time.get_ticks_usec())
+	var old_save := FileAccess.open(reset_path, FileAccess.WRITE)
+	old_save.store_string('{"energy": 4, "attempts": 9, "stored_fish": [{"name":"test"}]}')
+	old_save.close()
+	var fresh_game = load("res://main.tscn").instantiate()
+	fresh_game.save_path = reset_path
+	root.add_child(fresh_game)
+	await process_frame
+	check(fresh_game.energy == 100 and fresh_game.attempts == 0 and fresh_game.stored_fish.is_empty(), "new game ignores previous progress")
+	fresh_game.energy = 50
+	fresh_game._save_game()
+	check(FileAccess.get_file_as_string(reset_path).contains('"energy": 4'), "normal session does not overwrite old save")
+	fresh_game.queue_free()
+	await process_frame
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(reset_path))
 	var game = load("res://main.tscn").instantiate()
 	game.save_path = "user://test_fishing_%s.json" % str(Time.get_ticks_usec())
+	game.persistence_enabled = true
 	root.add_child(game)
 	await process_frame
 	await physics_frame
