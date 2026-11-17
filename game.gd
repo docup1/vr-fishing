@@ -264,15 +264,16 @@ func _build_world() -> void:
 		var pivot := Node3D.new()
 		pivot.name = "LeftOar" if side < 0 else "RightOar"
 		pivot.position = Vector3(side * 0.65, 0.65, 0.2)
+		pivot.rotation.z = side * 0.9
 		boat_hull.add_child(pivot)
 		var paddle := (load("res://GLB/Paddle.glb") as PackedScene).instantiate() as Node3D
-		paddle.scale = Vector3.ONE * 0.7
+		paddle.scale = Vector3.ONE
 		# The broad blade is the positive end of the imported paddle's Z axis.
 		paddle.rotation.x = PI / 2.0
 		pivot.add_child(paddle)
 		var grip_point := Marker3D.new()
 		grip_point.name = "GripPoint"
-		grip_point.position.y = 0.68
+		grip_point.position.y = 0.95
 		pivot.add_child(grip_point)
 		var water_fx := Node3D.new()
 		water_fx.name = "OarWaterEffect"
@@ -451,8 +452,8 @@ func _update_vr_rowing(delta: float) -> void:
 		var hand_force := _row_hand_strength(index, local_hand, gripping, delta)
 		var oar := boat_hull.get_node("RightOar" if index == 0 else "LeftOar") as Node3D
 		var paddle := oar.get_child(0) as Node3D
-		# Broad end of the GLB is +Z, 1.33 m from the model origin after scaling.
-		var blade := paddle.to_global(Vector3(0, 0, 1.33 / 0.7))
+		# Broad end of the GLB is at +Z in the imported model.
+		var blade := paddle.to_global(Vector3(0, 0, 1.8989))
 		var depth := _water_height(blade.x, blade.z) - blade.y
 		var submerged := gripping and depth > 0.0
 		vr_oar_force[index] = _oar_water_force(hand_force, depth, gripping)
@@ -483,8 +484,6 @@ func _update_oar_grab(index: int, hand_position: Vector3, pressed: bool, can_row
 		# Rotate the attached oar about its boat-side pivot toward the hand.
 		var direction := boat_hull.global_basis.inverse() * (hand_position - oar.global_position)
 		if direction.length_squared() > 0.01:
-			# Limit the pivot travel so the blade stays on the water side of the oarlock.
-			direction.y = maxf(direction.y, direction.length() * 0.45)
 			oar.quaternion = Quaternion(Vector3.UP, direction.normalized())
 	return vr_holding_oar[index]
 

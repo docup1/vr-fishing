@@ -64,6 +64,12 @@ func run_test() -> void:
 	check(game._update_oar_grab(0, grip_point.global_position, true, true), "hand can grab an oar near its handle")
 	check(game._update_oar_grab(0, grip_point.global_position + Vector3(0, 0, 0.4), true, true), "moving hand keeps hold of the oar")
 	check(oar.get_parent() == game.boat_hull and oar.position.is_equal_approx(pivot_before), "oar pivot remains attached to the boat")
+	var paddle := oar.get_child(0) as Node3D
+	var hand_below: Vector3 = oar.global_position + game.boat_hull.global_basis * Vector3(0.6, -0.6, 0)
+	game._update_oar_grab(0, hand_below, true, true)
+	var blade_above: Vector3 = paddle.to_global(Vector3(0, 0, 1.8989))
+	check(blade_above.y > game._water_height(blade_above.x, blade_above.z), "lowering handle lifts blade out of water without releasing")
+	check(game.vr_holding_oar[0], "oar stays held while lifting blade")
 	check(not game._update_oar_grab(0, grip_point.global_position, false, true), "releasing grip releases the oar")
 	check(oar.get_parent() == game.boat_hull and oar.position.is_equal_approx(pivot_before), "released oar stays attached to the boat")
 	var backward_local: Vector3 = game.xr_origin.global_basis.inverse() * -game.boat_hull.global_basis.z.normalized()
