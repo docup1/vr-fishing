@@ -15,11 +15,14 @@ var sim_hand_grabbed := [false, false]
 var xr_origin: XROrigin3D
 var left_controller: XRController3D
 var right_controller: XRController3D
+var vr_hand_anchors: Array[CharacterBody3D] = []
 var vr_ui_viewport: SubViewport
 var vr_trigger_pressed := false
 var vr_row_previous := [Vector3.ZERO, Vector3.ZERO]
 var vr_row_tracking := [false, false]
 var vr_row_strength := 0.0
+var vr_oar_force := [0.0, 0.0]
+var boat_yaw_velocity := 0.0
 var vr_holding_oar := [false, false]
 const VR_OAR_GRAB_RADIUS := 0.65
 const VR_TURN_SPEED := 2.6 # radians per second at full stick deflection
@@ -352,6 +355,20 @@ func _make_controller(tracker_path: String) -> XRController3D:
 	mesh.height = 0.18
 	handle.mesh = mesh
 	controller.add_child(handle)
+	var anchor := CharacterBody3D.new()
+	anchor.name = "PhysicalHandAnchor"
+	anchor.set_script(load("res://addons/vr_physics_adapter/hand_anchor.gd"))
+	anchor.controller = controller
+	anchor.collision_layer = 0
+	anchor.collision_mask = 1
+	var collision := CollisionShape3D.new()
+	var sphere := SphereShape3D.new()
+	sphere.radius = 0.08
+	collision.shape = sphere
+	anchor.add_child(collision)
+	add_child(anchor)
+	anchor.global_position = controller.global_position
+	vr_hand_anchors.append(anchor)
 	return controller
 
 func _on_vr_left_button(action: String) -> void:
@@ -420,8 +437,11 @@ func _update_vr_rowing(delta: float) -> void:
 	for index in range(2):
 		var controller: XRController3D = controllers[index]
 		var pressed: bool = (sim_grips[index] or (sim_joy_id >= 0 and Input.get_joy_axis(sim_joy_id, JOY_AXIS_TRIGGER_LEFT if index == 0 else JOY_AXIS_TRIGGER_RIGHT) > 0.4)) if vr_simulator else controller.get_is_active() and controller.get_float("grip") > 0.55
-		var gripping := _update_oar_grab(index, controller.global_position, pressed, can_row)
-		vr_row_strength += _row_hand_strength(index, controller.position, gripping, delta) * 0.6
+		var hand_position: Vector3 = controller.global_position if vr_simulator else vr_hand_anchors[index].global_position
+		var gripping := _update_oar_grab(index, hand_position, pressed, can_row)
+		var local_hand := xr_origin.to_local(hand_position)
+		vr_oar_force[index] = _row_hand_strength(index, local_hand, gripping, delta)
+		vr_row_strength += vr_oar_force[index] * 0.6
 	vr_row_strength = clampf(vr_row_strength, 0.0, 1.0)
 	rod.visible = not vr_holding_oar[1]
 
@@ -431,8 +451,12 @@ func _update_oar_grab(index: int, hand_position: Vector3, pressed: bool, can_row
 	var grip_point := oar.get_node("GripPoint") as Marker3D
 	if not can_row or not pressed:
 		vr_holding_oar[index] = false
-	elif not vr_holding_oar[index] and hand_position.distance_to(grip_point.global_position) <= VR_OAR_GRAB_RADIUS:
-		vr_holding_oar[index] = true
+	elif not vr_holding_oar[index]:
+		var grip_start := oar.global_position
+		var grip_end := grip_point.global_position
+		var closest := Geometry3D.get_closest_point_to_segment(hand_position, grip_start, grip_end)
+		if hand_position.distance_to(closest) <= VR_OAR_GRAB_RADIUS:
+			vr_holding_oar[index] = true
 	if vr_holding_oar[index]:
 		# Rotate the attached oar about its boat-side pivot toward the hand.
 		var direction := boat_hull.global_basis.inverse() * (hand_position - oar.global_position)
@@ -1187,8 +1211,26 @@ func _move_player(delta: float) -> void:
 	player.position.z = clampf(player.position.z, 4.5, 23.5)
 
 func _move_boat(delta: float) -> void:
-	var v := Vector2(0, -vr_row_strength) if vr_active else _movement_input()
-	_advance_boat(delta, v)
+	if vr_active:
+		_advance_rowing_boat(delta, vr_oar_force[0], vr_oar_force[1])
+	else:
+		_advance_boat(delta, _movement_input())
+
+func _advance_rowing_boat(delta: float, left_force: float, right_force: float) -> void:
+	# Oars act independently in the horizontal plane; equal strokes propel
+	# forward, while unequal strokes create yaw around the hull's centre.
+	var left := clampf(left_force, 0.0, 1.0)
+	var right := clampf(right_force, 0.0, 1.0)
+	var forward := boat_hull.global_basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	boat_velocity += forward * ((left + right) * 3.5 * delta)
+	boat_velocity *= exp(-0.55 * delta)
+	boat_velocity = boat_velocity.limit_length(4.2)
+	boat_yaw_velocity += (left - right) * 1.8 * delta
+	boat_yaw_velocity *= exp(-1.4 * delta)
+	boat_hull.rotate_y(boat_yaw_velocity * delta)
+	_move_boat_position(delta)
 
 func _advance_boat(delta: float, v: Vector2) -> void:
 	if v.length() > 1: v = v.normalized()
@@ -1197,6 +1239,12 @@ func _advance_boat(delta: float, v: Vector2) -> void:
 	# A boat carries momentum and eases to a stop after the player releases WASD.
 	var acceleration := (4.0 if vr_active else 1.8) if v.length_squared() > 0.0 else (0.55 if vr_active else 1.0)
 	boat_velocity = boat_velocity.move_toward(direction * (4.2 if vr_active else 3.0), acceleration * delta)
+	_move_boat_position(delta)
+	if boat_velocity.length_squared() > 0.04:
+		var heading := atan2(boat_velocity.x, boat_velocity.z)
+		boat_hull.rotation.y = lerp_angle(boat_hull.rotation.y, heading, 1.0 - exp(-2.0 * delta))
+
+func _move_boat_position(delta: float) -> void:
 	var next_x := clampf(boat.position.x + boat_velocity.x * delta, -45.0, 45.0)
 	if _boat_blocked(Vector2(next_x, boat.position.z)):
 		boat_velocity.x = 0.0
@@ -1209,10 +1257,6 @@ func _advance_boat(delta: float, v: Vector2) -> void:
 		boat.position.z = next_z
 	if absf(boat.position.x) >= 45.0: boat_velocity.x = 0.0
 	if boat.position.z <= -45.0 or boat.position.z >= 8.0: boat_velocity.z = 0.0
-	if boat_velocity.length_squared() > 0.04:
-		# The downloaded hull's bow is its +Z end, rather than Godot's -Z forward.
-		var heading := atan2(boat_velocity.x, boat_velocity.z)
-		boat_hull.rotation.y = lerp_angle(boat_hull.rotation.y, heading, 1.0 - exp(-2.0 * delta))
 
 func _boat_blocked(pos: Vector2) -> bool:
 	# Keep the hull out of the three shores while allowing routes around them.
@@ -1277,6 +1321,11 @@ func _interact() -> void:
 		boat_blocker.collision_layer = 0
 		boat_velocity = Vector3.ZERO
 		player_velocity = Vector3.ZERO
+		boat_yaw_velocity = 0.0
+		if vr_active:
+			var look_forward := -camera.global_basis.z
+			if Vector2(look_forward.x, look_forward.z).length_squared() > 0.01:
+				boat_hull.rotation.y = atan2(look_forward.x, look_forward.z)
 		if vr_active:
 			var head_offset := camera.global_position - player.global_position
 			vr_boat_head_offset = Vector3(head_offset.x, 0, head_offset.z)

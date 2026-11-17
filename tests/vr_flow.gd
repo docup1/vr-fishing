@@ -18,6 +18,7 @@ func run_test() -> void:
 	await process_frame
 	check(game.camera is XRCamera3D, "tracked stereo camera")
 	check(game.left_controller.tracker == "left_hand" and game.right_controller.tracker == "right_hand", "controller trackers")
+	check(game.vr_hand_anchors.size() == 2 and game.vr_hand_anchors[0].collision_mask == 1, "physical hand anchors collide with world")
 	check(game.rod.get_parent() == game.right_controller, "rod follows controller")
 	var rod_model := game.rod.get_child(0) as Node3D
 	check(rod_model.basis.z.normalized().dot(Vector3.DOWN) > 0.99 and game.rod_tip.position.y < -1.5, "rod matches oar orientation and line starts at its tip")
@@ -67,7 +68,20 @@ func run_test() -> void:
 	check(game._row_hand_strength(0, Vector3.ZERO, true, 0.05) == 0.0, "moving the hand forward does not propel the boat")
 	check(game._row_hand_strength(0, Vector3.ZERO, false, 0.05) == 0.0, "released hand does not propel the boat")
 	game.boat.position = Vector3(0, 0, -5)
-	game.vr_row_strength = stroke
+	game.boat_hull.rotation = Vector3.ZERO
+	game.boat_velocity = Vector3.ZERO
+	game.boat_yaw_velocity = 0.0
+	game._advance_rowing_boat(0.1, 1.0, 1.0)
+	check(game.boat_velocity.z > 0 and absf(game.boat_yaw_velocity) < 0.001, "equal strokes push forward without turning")
+	game.boat_yaw_velocity = 0.0
+	game._advance_rowing_boat(0.1, 1.0, 0.0)
+	check(game.boat_yaw_velocity > 0, "left stroke turns boat")
+	game.boat_yaw_velocity = 0.0
+	game._advance_rowing_boat(0.1, 0.0, 1.0)
+	check(game.boat_yaw_velocity < 0, "right stroke turns boat in opposite direction")
+	game.boat_velocity = Vector3.ZERO
+	game.boat_yaw_velocity = 0.0
+	game.vr_oar_force = [stroke, stroke]
 	game._move_boat(0.1)
 	check(game.boat_velocity.length() > 0.0, "rowing propels the boat")
 	game.boat_velocity = Vector3.ZERO
