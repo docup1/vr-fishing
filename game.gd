@@ -257,9 +257,11 @@ func _build_world() -> void:
 	add_child(boat)
 	boat_hull = Node3D.new()
 	boat.add_child(boat_hull)
-	var boat_asset := (load("res://GLB/Wood_BoatV1.glb") as PackedScene).instantiate() as Node3D
+	var boat_asset := (load("res://GLB/Wood_BoatV2.glb") as PackedScene).instantiate() as Node3D
 	boat_asset.name = "DownloadedBoat"
 	boat_asset.scale = Vector3.ONE * 1.3
+	# This model's origin sits above the keel, unlike the previous boat.
+	boat_asset.position.y = 0.42
 	boat_hull.add_child(boat_asset)
 	for side in [-1.0, 1.0]:
 		var pivot := Node3D.new()
@@ -284,7 +286,7 @@ func _build_world() -> void:
 		_add_ring(water_fx, 0.22, 0.025, Color(0.68, 0.9, 0.87))
 		water_fx.visible = false
 		oar_water_fx.append(water_fx)
-	boat_blocker = _add_solid_box(boat, Vector3(0, 0.45, 0), Vector3(2.1, 0.9, 5.25))
+	boat_blocker = _add_solid_box(boat, Vector3(0, 0.45, -0.18), Vector3(2.1, 0.9, 5.7))
 	boat_wake = Node3D.new()
 	add_child(boat_wake)
 	_add_ring(boat_wake, 1.15, 0.035, Color(0.52, 0.73, 0.70))
