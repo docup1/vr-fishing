@@ -20,6 +20,7 @@ func run_test() -> void:
 	check(game.left_controller.tracker == "left_hand" and game.right_controller.tracker == "right_hand", "controller trackers")
 	check(game.vr_hand_anchors.size() == 2 and game.vr_hand_anchors[0].collision_mask == 1, "physical hand anchors collide with world")
 	check(game.rod.get_parent() == game.right_controller, "rod follows controller")
+	check(game.fish_model.name == "Fish1" and game.fish_model.get_child_count() >= 2, "downloaded fish is used in catch dialogue")
 	var rod_model := game.rod.get_child(0) as Node3D
 	check(rod_model.basis.z.normalized().dot(Vector3.DOWN) > 0.99 and game.rod_tip.position.y < -1.5, "rod matches oar orientation and line starts at its tip")
 	for oar_name in ["LeftOar", "RightOar"]:
@@ -62,6 +63,12 @@ func run_test() -> void:
 	var grip_point := oar.get_node("GripPoint") as Node3D
 	check(not game._update_oar_grab(0, grip_point.global_position + Vector3(3, 0, 0), true, true), "cannot grab an oar from far away")
 	check(game._update_oar_grab(0, grip_point.global_position, true, true), "hand can grab an oar near its handle")
+	var near_pivot: Vector3 = oar.global_position + game.boat_hull.global_basis * Vector3(0.01, 0.4, 0)
+	for i in range(30):
+		game._update_oar_grab(0, near_pivot + Vector3(0, 0, 0.001 if i % 2 == 0 else -0.001), true, true, 1.0 / 90.0)
+	var stable_rotation: Quaternion = oar.quaternion
+	game._update_oar_grab(0, near_pivot + Vector3(0, 0, -0.001), true, true, 1.0 / 90.0)
+	check(absf(stable_rotation.dot(oar.quaternion)) > 0.9999, "oar does not flip for small hand jitter at pivot")
 	var grab_hand_position: Vector3 = grip_point.global_position
 	for i in range(12):
 		game._update_oar_grab(0, grab_hand_position - Vector3(0, 0.22, 0), true, true, 1.0 / 90.0)

@@ -268,7 +268,7 @@ func _build_world() -> void:
 	for side in [-1.0, 1.0]:
 		var pivot := Node3D.new()
 		pivot.name = "LeftOar" if side < 0 else "RightOar"
-		pivot.position = Vector3(side * 0.66, 0.65, 0.2)
+		pivot.position = Vector3(side * 0.82, 0.65, 0.2)
 		pivot.rotation.z = side * 0.85
 		boat_hull.add_child(pivot)
 		var paddle := (load("res://GLB/Paddle.glb") as PackedScene).instantiate() as Node3D
@@ -344,7 +344,7 @@ func _build_world() -> void:
 	fish_display = Node3D.new()
 	fish_display.position = Vector3(0, -0.05, -2.0)
 	camera.add_child(fish_display)
-	fish_model = Art.make_fish(fish_display, Color(0.51, 0.57, 0.34))
+	fish_model = _make_downloaded_fish(fish_display)
 	boss_model = Art.make_fish(fish_display, Color(0.42, 0.43, 0.26), true)
 	boss_model.visible = false
 	fish_display.visible = false
@@ -359,6 +359,19 @@ func _build_world() -> void:
 	collection_root = Node3D.new()
 	collection_root.name = "FishCollection"
 	add_child(collection_root)
+
+func _make_downloaded_fish(parent: Node3D) -> Node3D:
+	var fish := Node3D.new()
+	fish.name = "Fish1"
+	parent.add_child(fish)
+	var model := (load("res://GLB/fish1.glb") as PackedScene).instantiate() as Node3D
+	model.scale = Vector3.ONE * 0.35
+	fish.add_child(model)
+	# Keep the existing animation interface; this model has no separate tail.
+	var tail := Node3D.new()
+	tail.name = "Tail"
+	fish.add_child(tail)
+	return fish
 
 func _make_controller(tracker_path: String) -> XRController3D:
 	var controller := XRController3D.new()
@@ -497,8 +510,12 @@ func _update_oar_grab(index: int, hand_position: Vector3, pressed: bool, can_row
 		var direction := boat_hull.global_basis.inverse() * (hand_position - oar.global_position)
 		var baseline: Vector3 = vr_oar_grab_direction[index]
 		var horizontal := Vector2(direction.x, direction.z)
-		if horizontal.length_squared() < 0.01:
-			horizontal = Vector2(baseline.x, baseline.z)
+		var stable_axis := Vector2(baseline.x, baseline.z).normalized()
+		if stable_axis.length_squared() < 0.01:
+			stable_axis = Vector2(-1.0 if index == 0 else 1.0, 0.0)
+		# Near the pivot, tiny tracking changes must not reverse the lever.
+		if horizontal.length() < 0.30 or horizontal.dot(stable_axis) <= 0.0:
+			horizontal = stable_axis
 		horizontal = horizontal.normalized() * maxf(Vector2(baseline.x, baseline.z).length(), 0.35)
 		direction = Vector3(horizontal.x, clampf(baseline.y + (local_hand.y - vr_oar_grab_height[index]) * 3.5, -0.8, 1.2), horizontal.y)
 		if direction.length_squared() > 0.01:
