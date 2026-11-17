@@ -261,7 +261,7 @@ func _build_world() -> void:
 	boat_asset.name = "DownloadedBoat"
 	boat_asset.scale = Vector3.ONE * 0.9
 	# This model's origin sits above the keel, unlike the previous boat.
-	boat_asset.position.y = 0.33
+	boat_asset.position.y = 0.03
 	boat_hull.add_child(boat_asset)
 	for side in [-1.0, 1.0]:
 		var pivot := Node3D.new()
@@ -1298,10 +1298,22 @@ func _boat_blocked(pos: Vector2) -> bool:
 	return false
 
 func _update_boat_pose(delta: float) -> void:
-	var height := _water_height(boat.position.x, boat.position.z) + 0.1
-	boat_hull.position.y = lerpf(boat_hull.position.y, height, 1.0 - exp(-2.0 * delta))
-	boat_hull.rotation.x = sin(water_time * 0.8 + boat.position.z * 0.13) * 0.018
-	boat_hull.rotation.z = sin(water_time * 0.65 + boat.position.x * 0.1) * 0.025
+	# Sample both ends and sides of the hull; the shader uses the same waves.
+	var yaw_basis := Basis(Vector3.UP, boat_hull.rotation.y)
+	var front := boat.position + yaw_basis * Vector3(0, 0, 1.5)
+	var rear := boat.position + yaw_basis * Vector3(0, 0, -1.5)
+	var right := boat.position + yaw_basis * Vector3(0.55, 0, 0)
+	var left := boat.position + yaw_basis * Vector3(-0.55, 0, 0)
+	var front_height := _water_height(front.x, front.z)
+	var rear_height := _water_height(rear.x, rear.z)
+	var right_height := _water_height(right.x, right.z)
+	var left_height := _water_height(left.x, left.z)
+	# Keel is approximately -0.176 m in hull space; 0.076 m sits in water.
+	var height := (front_height + rear_height + right_height + left_height) * 0.25 + 0.10
+	var smoothing := 1.0 - exp(-4.0 * delta)
+	boat_hull.position.y = lerpf(boat_hull.position.y, height, smoothing)
+	boat_hull.rotation.x = lerp_angle(boat_hull.rotation.x, -atan2(front_height - rear_height, 3.0), smoothing)
+	boat_hull.rotation.z = lerp_angle(boat_hull.rotation.z, atan2(right_height - left_height, 1.1), smoothing)
 	var stroke_strength := clampf(boat_velocity.length() / 2.5, 0.0, 1.0)
 	for oar_name in ["LeftOar", "RightOar"]:
 		var oar := boat_hull.get_node(oar_name) as Node3D

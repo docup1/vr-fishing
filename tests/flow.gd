@@ -61,6 +61,17 @@ func run_flow() -> void:
 	game._interact()
 	check(game.riding, "board the boat at the dock")
 	check(game.boat_blocker.collision_layer == 0, "boat collision is disabled while riding")
+	var original_boat_position: Vector3 = game.boat.position
+	var original_water_time: float = game.water_time
+	game.boat.position = Vector3(20, 0, -5)
+	for sample_time in [0.0, 2.0, 5.0, 11.0]:
+		game.water_time = sample_time
+		game._update_boat_pose(4.0)
+		var keel_height: float = game.boat_hull.global_position.y + 0.03 - 0.22865756 * 0.9
+		var water_height: float = game._water_height(game.boat.position.x, game.boat.position.z)
+		check(keel_height < water_height and keel_height > water_height - 0.15, "boat keel remains slightly submerged as waves change")
+	game.water_time = original_water_time
+	game.boat.position = original_boat_position
 	check(game._boat_blocked(Vector2(0, 2.1)), "pier blocks the boat hull")
 	check(not game._boat_blocked(Vector2(game.BOAT_MOORING.x, game.BOAT_MOORING.z)), "mooring remains accessible")
 	game._advance_boat(0.2, Vector2(0, 1))
