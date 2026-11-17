@@ -62,7 +62,7 @@ func run_flow() -> void:
 	check(game.riding, "board the boat at the dock")
 	check(game.boat_blocker.collision_layer == 0, "boat collision is disabled while riding")
 	check(game._boat_blocked(Vector2(0, 2.1)), "pier blocks the boat hull")
-	check(not game._boat_blocked(Vector2(0, 1.8)), "mooring remains accessible")
+	check(not game._boat_blocked(Vector2(game.BOAT_MOORING.x, game.BOAT_MOORING.z)), "mooring remains accessible")
 	game._advance_boat(0.2, Vector2(0, 1))
 	check(game.boat.position.z <= game.BOAT_MOORING.z + 0.1, "boat cannot drive onto pier")
 	game.boat_velocity = Vector3.ZERO

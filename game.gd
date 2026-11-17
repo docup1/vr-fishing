@@ -132,7 +132,7 @@ const ZONES := [
 const SAVE_PATH := "user://fishing_save.json"
 var save_path := SAVE_PATH
 const DOCK := Vector3(0, 0, 9)
-const BOAT_MOORING := Vector3(0, 0, 1.8)
+const BOAT_MOORING := Vector3(0, 0, 1.2)
 
 func _ready() -> void:
 	vr_simulator = "--simulate-vr" in OS.get_cmdline_user_args()
@@ -259,21 +259,24 @@ func _build_world() -> void:
 	boat.add_child(boat_hull)
 	var boat_asset := (load("res://GLB/Wood_BoatV1.glb") as PackedScene).instantiate() as Node3D
 	boat_asset.name = "DownloadedBoat"
+	boat_asset.scale = Vector3.ONE * 1.3
 	boat_hull.add_child(boat_asset)
 	for side in [-1.0, 1.0]:
 		var pivot := Node3D.new()
 		pivot.name = "LeftOar" if side < 0 else "RightOar"
-		pivot.position = Vector3(side * 0.65, 0.65, 0.2)
-		pivot.rotation.z = side * 0.9
+		pivot.position = Vector3(side * 0.93, 0.65, 0.2)
+		pivot.rotation.z = side * 0.65
 		boat_hull.add_child(pivot)
 		var paddle := (load("res://GLB/Paddle.glb") as PackedScene).instantiate() as Node3D
-		paddle.scale = Vector3.ONE
+		paddle.scale = Vector3.ONE * 0.70
 		# The broad blade is the positive end of the imported paddle's Z axis.
 		paddle.rotation.x = PI / 2.0
+		# Shift the shaft through the oarlock: handle inside, blade outside.
+		paddle.position.y = 0.30
 		pivot.add_child(paddle)
 		var grip_point := Marker3D.new()
 		grip_point.name = "GripPoint"
-		grip_point.position.y = 0.95
+		grip_point.position.y = 0.85
 		pivot.add_child(grip_point)
 		var water_fx := Node3D.new()
 		water_fx.name = "OarWaterEffect"
@@ -281,7 +284,7 @@ func _build_world() -> void:
 		_add_ring(water_fx, 0.22, 0.025, Color(0.68, 0.9, 0.87))
 		water_fx.visible = false
 		oar_water_fx.append(water_fx)
-	boat_blocker = _add_solid_box(boat, Vector3(0, 0.45, 0), Vector3(1.8, 0.9, 3.6))
+	boat_blocker = _add_solid_box(boat, Vector3(0, 0.45, 0), Vector3(2.1, 0.9, 5.25))
 	boat_wake = Node3D.new()
 	add_child(boat_wake)
 	_add_ring(boat_wake, 1.15, 0.035, Color(0.52, 0.73, 0.70))
@@ -1284,7 +1287,7 @@ func _move_boat_position(delta: float) -> void:
 func _boat_blocked(pos: Vector2) -> bool:
 	# Keep the hull out of the three shores while allowing routes around them.
 	# The pier starts at z=4; leave room for the rotating hull in front of it.
-	if absf(pos.x) < 3.5 and pos.y > 1.9:
+	if absf(pos.x) < 4.2 and pos.y > 1.25:
 		return true
 	if pos.x >= -18.0 and pos.x <= 18.0 and pos.y >= -24.0 and pos.y <= -14.7:
 		return true
