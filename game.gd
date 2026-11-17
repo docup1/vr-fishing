@@ -24,6 +24,8 @@ var vr_row_strength := 0.0
 var vr_oar_force := [0.0, 0.0]
 var boat_yaw_velocity := 0.0
 var vr_holding_oar := [false, false]
+var vr_oar_grab_height := [0.0, 0.0]
+var vr_oar_grab_direction := [Vector3.UP, Vector3.UP]
 const VR_OAR_GRAB_RADIUS := 0.65
 const VR_TURN_SPEED := 2.6 # radians per second at full stick deflection
 const VR_TRIGGER_PRESS := 0.55
@@ -452,7 +454,7 @@ func _update_vr_rowing(delta: float) -> void:
 		var controller: XRController3D = controllers[index]
 		var pressed: bool = (sim_grips[index] or (sim_joy_id >= 0 and Input.get_joy_axis(sim_joy_id, JOY_AXIS_TRIGGER_LEFT if index == 0 else JOY_AXIS_TRIGGER_RIGHT) > 0.4)) if vr_simulator else controller.get_is_active() and controller.get_float("grip") > 0.55
 		var hand_position: Vector3 = controller.global_position if vr_simulator else vr_hand_anchors[index].global_position
-		var gripping := _update_oar_grab(index, hand_position, pressed, can_row)
+		var gripping := _update_oar_grab(index, hand_position, pressed, can_row, delta)
 		var local_hand := xr_origin.to_local(hand_position)
 		var hand_force := _row_hand_strength(index, local_hand, gripping, delta)
 		var oar := boat_hull.get_node("RightOar" if index == 0 else "LeftOar") as Node3D
@@ -474,7 +476,7 @@ func _update_vr_rowing(delta: float) -> void:
 func _oar_water_force(hand_force: float, depth: float, gripping: bool) -> float:
 	return hand_force * clampf(depth / 0.15, 0.0, 1.0) if gripping and depth > 0.0 else 0.0
 
-func _update_oar_grab(index: int, hand_position: Vector3, pressed: bool, can_row: bool) -> bool:
+func _update_oar_grab(index: int, hand_position: Vector3, pressed: bool, can_row: bool, delta: float = 0.1) -> bool:
 	# The boat's +Z bow faces the player, so its model sides are reversed in view.
 	var oar := boat_hull.get_node("RightOar" if index == 0 else "LeftOar") as Node3D
 	var grip_point := oar.get_node("GripPoint") as Marker3D
@@ -486,11 +488,22 @@ func _update_oar_grab(index: int, hand_position: Vector3, pressed: bool, can_row
 		var closest := Geometry3D.get_closest_point_to_segment(hand_position, grip_start, grip_end)
 		if hand_position.distance_to(closest) <= VR_OAR_GRAB_RADIUS:
 			vr_holding_oar[index] = true
+			vr_oar_grab_height[index] = boat_hull.to_local(hand_position).y
+			vr_oar_grab_direction[index] = (oar.quaternion * Vector3.UP).normalized()
 	if vr_holding_oar[index]:
-		# Rotate the attached oar about its boat-side pivot toward the hand.
+		# Keep the initial handle angle at grab; amplify vertical hand travel so
+		# a modest hand movement lifts the blade without crouching.
+		var local_hand := boat_hull.to_local(hand_position)
 		var direction := boat_hull.global_basis.inverse() * (hand_position - oar.global_position)
+		var baseline: Vector3 = vr_oar_grab_direction[index]
+		var horizontal := Vector2(direction.x, direction.z)
+		if horizontal.length_squared() < 0.01:
+			horizontal = Vector2(baseline.x, baseline.z)
+		horizontal = horizontal.normalized() * maxf(Vector2(baseline.x, baseline.z).length(), 0.35)
+		direction = Vector3(horizontal.x, clampf(baseline.y + (local_hand.y - vr_oar_grab_height[index]) * 3.5, -0.8, 1.2), horizontal.y)
 		if direction.length_squared() > 0.01:
-			oar.quaternion = Quaternion(Vector3.UP, direction.normalized())
+			var target := Quaternion(Vector3.UP, direction.normalized())
+			oar.quaternion = oar.quaternion.slerp(target, 1.0 - exp(-25.0 * maxf(delta, 0.0)))
 	return vr_holding_oar[index]
 
 func _update_sim_gamepad(delta: float) -> void:
