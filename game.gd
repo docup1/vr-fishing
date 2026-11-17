@@ -25,8 +25,6 @@ var vr_oar_force := [0.0, 0.0]
 var boat_yaw_velocity := 0.0
 var vr_holding_oar := [false, false]
 var vr_haptic_cooldown := [0.0, 0.0]
-var vr_oar_grab_height := [0.0, 0.0]
-var vr_oar_grab_direction := [Vector3.UP, Vector3.UP]
 const VR_OAR_GRAB_RADIUS := 0.65
 const VR_TURN_SPEED := 2.6 # radians per second at full stick deflection
 const VR_TRIGGER_PRESS := 0.55
@@ -517,26 +515,11 @@ func _update_oar_grab(index: int, hand_position: Vector3, pressed: bool, can_row
 		var closest := Geometry3D.get_closest_point_to_segment(hand_position, grip_start, grip_end)
 		if hand_position.distance_to(closest) <= VR_OAR_GRAB_RADIUS:
 			vr_holding_oar[index] = true
-			vr_oar_grab_height[index] = boat_hull.to_local(hand_position).y
-			vr_oar_grab_direction[index] = (oar.quaternion * Vector3.UP).normalized()
 	if vr_holding_oar[index]:
-		# Keep the initial handle angle at grab; amplify vertical hand travel so
-		# a modest hand movement lifts the blade without crouching.
-		var local_hand := boat_hull.to_local(hand_position)
+		# The handle follows the hand around the fixed oarlock.
 		var direction := boat_hull.global_basis.inverse() * (hand_position - oar.global_position)
-		var baseline: Vector3 = vr_oar_grab_direction[index]
-		var horizontal := Vector2(direction.x, direction.z)
-		var stable_axis := Vector2(baseline.x, baseline.z).normalized()
-		if stable_axis.length_squared() < 0.01:
-			stable_axis = Vector2(-1.0 if index == 0 else 1.0, 0.0)
-		# Near the pivot, tiny tracking changes must not reverse the lever.
-		if horizontal.length() < 0.30 or horizontal.dot(stable_axis) <= 0.0:
-			horizontal = stable_axis
-		horizontal = horizontal.normalized() * maxf(Vector2(baseline.x, baseline.z).length(), 0.35)
-		direction = Vector3(horizontal.x, clampf(baseline.y + (local_hand.y - vr_oar_grab_height[index]) * 3.5, -0.8, 1.2), horizontal.y)
 		if direction.length_squared() > 0.01:
-			var target := Quaternion(Vector3.UP, direction.normalized())
-			oar.quaternion = oar.quaternion.slerp(target, 1.0 - exp(-25.0 * maxf(delta, 0.0)))
+			oar.quaternion = Quaternion(Vector3.UP, direction.normalized())
 	return vr_holding_oar[index]
 
 func _update_sim_gamepad(delta: float) -> void:

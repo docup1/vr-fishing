@@ -63,18 +63,6 @@ func run_test() -> void:
 	var grip_point := oar.get_node("GripPoint") as Node3D
 	check(not game._update_oar_grab(0, grip_point.global_position + Vector3(3, 0, 0), true, true), "cannot grab an oar from far away")
 	check(game._update_oar_grab(0, grip_point.global_position, true, true), "hand can grab an oar near its handle")
-	var near_pivot: Vector3 = oar.global_position + game.boat_hull.global_basis * Vector3(0.01, 0.4, 0)
-	for i in range(30):
-		game._update_oar_grab(0, near_pivot + Vector3(0, 0, 0.001 if i % 2 == 0 else -0.001), true, true, 1.0 / 90.0)
-	var stable_rotation: Quaternion = oar.quaternion
-	game._update_oar_grab(0, near_pivot + Vector3(0, 0, -0.001), true, true, 1.0 / 90.0)
-	check(absf(stable_rotation.dot(oar.quaternion)) > 0.9999, "oar does not flip for small hand jitter at pivot")
-	var grab_hand_position: Vector3 = grip_point.global_position
-	for i in range(12):
-		game._update_oar_grab(0, grab_hand_position - Vector3(0, 0.22, 0), true, true, 1.0 / 90.0)
-	var raised_paddle := oar.get_child(0) as Node3D
-	var raised_tip: Vector3 = raised_paddle.to_global(Vector3(0, 0, 1.8989))
-	check(raised_tip.y > game._water_height(raised_tip.x, raised_tip.z), "a small downward hand movement lifts the blade")
 	check(game._update_oar_grab(0, grip_point.global_position + Vector3(0, 0, 0.4), true, true), "moving hand keeps hold of the oar")
 	check(oar.get_parent() == game.boat_hull and oar.position.is_equal_approx(pivot_before), "oar pivot remains attached to the boat")
 	var paddle := oar.get_child(0) as Node3D
