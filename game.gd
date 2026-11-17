@@ -366,6 +366,7 @@ func _make_downloaded_fish(parent: Node3D) -> Node3D:
 	parent.add_child(fish)
 	var model := (load("res://GLB/fish1.glb") as PackedScene).instantiate() as Node3D
 	model.scale = Vector3.ONE * 0.35
+	model.rotation.y = PI
 	fish.add_child(model)
 	# Keep the existing animation interface; this model has no separate tail.
 	var tail := Node3D.new()
