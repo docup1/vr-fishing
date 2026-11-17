@@ -132,7 +132,7 @@ const ZONES := [
 const SAVE_PATH := "user://fishing_save.json"
 var save_path := SAVE_PATH
 const DOCK := Vector3(0, 0, 9)
-const BOAT_MOORING := Vector3(0, 0, 1.2)
+const BOAT_MOORING := Vector3(0, 0, 1.8)
 
 func _ready() -> void:
 	vr_simulator = "--simulate-vr" in OS.get_cmdline_user_args()
@@ -259,14 +259,14 @@ func _build_world() -> void:
 	boat.add_child(boat_hull)
 	var boat_asset := (load("res://GLB/Wood_BoatV2.glb") as PackedScene).instantiate() as Node3D
 	boat_asset.name = "DownloadedBoat"
-	boat_asset.scale = Vector3.ONE * 1.3
+	boat_asset.scale = Vector3.ONE * 0.9
 	# This model's origin sits above the keel, unlike the previous boat.
-	boat_asset.position.y = 0.42
+	boat_asset.position.y = 0.33
 	boat_hull.add_child(boat_asset)
 	for side in [-1.0, 1.0]:
 		var pivot := Node3D.new()
 		pivot.name = "LeftOar" if side < 0 else "RightOar"
-		pivot.position = Vector3(side * 0.93, 0.65, 0.2)
+		pivot.position = Vector3(side * 0.66, 0.65, 0.2)
 		pivot.rotation.z = side * 0.65
 		boat_hull.add_child(pivot)
 		var paddle := (load("res://GLB/Paddle.glb") as PackedScene).instantiate() as Node3D
@@ -286,7 +286,7 @@ func _build_world() -> void:
 		_add_ring(water_fx, 0.22, 0.025, Color(0.68, 0.9, 0.87))
 		water_fx.visible = false
 		oar_water_fx.append(water_fx)
-	boat_blocker = _add_solid_box(boat, Vector3(0, 0.45, -0.18), Vector3(2.1, 0.9, 5.7))
+	boat_blocker = _add_solid_box(boat, Vector3(0, 0.45, -0.12), Vector3(1.5, 0.9, 4.0))
 	boat_wake = Node3D.new()
 	add_child(boat_wake)
 	_add_ring(boat_wake, 1.15, 0.035, Color(0.52, 0.73, 0.70))
@@ -1289,7 +1289,7 @@ func _move_boat_position(delta: float) -> void:
 func _boat_blocked(pos: Vector2) -> bool:
 	# Keep the hull out of the three shores while allowing routes around them.
 	# The pier starts at z=4; leave room for the rotating hull in front of it.
-	if absf(pos.x) < 4.2 and pos.y > 1.25:
+	if absf(pos.x) < 3.5 and pos.y > 1.9:
 		return true
 	if pos.x >= -18.0 and pos.x <= 18.0 and pos.y >= -24.0 and pos.y <= -14.7:
 		return true
