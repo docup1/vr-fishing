@@ -267,18 +267,18 @@ func _build_world() -> void:
 		var pivot := Node3D.new()
 		pivot.name = "LeftOar" if side < 0 else "RightOar"
 		pivot.position = Vector3(side * 0.66, 0.65, 0.2)
-		pivot.rotation.z = side * 0.65
+		pivot.rotation.z = side * 0.85
 		boat_hull.add_child(pivot)
 		var paddle := (load("res://GLB/Paddle.glb") as PackedScene).instantiate() as Node3D
 		paddle.scale = Vector3.ONE * 0.70
 		# The broad blade is the positive end of the imported paddle's Z axis.
 		paddle.rotation.x = PI / 2.0
 		# Shift the shaft through the oarlock: handle inside, blade outside.
-		paddle.position.y = 0.30
+		paddle.position.y = 0.05
 		pivot.add_child(paddle)
 		var grip_point := Marker3D.new()
 		grip_point.name = "GripPoint"
-		grip_point.position.y = 0.85
+		grip_point.position.y = 0.70
 		pivot.add_child(grip_point)
 		var water_fx := Node3D.new()
 		water_fx.name = "OarWaterEffect"
@@ -460,12 +460,13 @@ func _update_vr_rowing(delta: float) -> void:
 		# Broad end of the GLB is at +Z in the imported model.
 		var blade := paddle.to_global(Vector3(0, 0, 1.8989))
 		var depth := _water_height(blade.x, blade.z) - blade.y
-		var submerged := gripping and depth > 0.0
+		var submerged := depth > 0.0
 		vr_oar_force[index] = _oar_water_force(hand_force, depth, gripping)
 		var fx := oar_water_fx[index]
-		fx.visible = submerged and absf(hand_force) > 0.08
+		# Show a waterline ring even when the oar is still or not held.
+		fx.visible = submerged
 		fx.global_position = Vector3(blade.x, _water_height(blade.x, blade.z) + 0.04, blade.z)
-		fx.scale = Vector3.ONE * (0.8 + absf(hand_force) * 0.55)
+		fx.scale = Vector3.ONE * (0.9 + absf(hand_force) * 0.45)
 		vr_row_strength += vr_oar_force[index] * 0.6
 	vr_row_strength = clampf(vr_row_strength, 0.0, 1.0)
 	rod.visible = not vr_holding_oar[1]
